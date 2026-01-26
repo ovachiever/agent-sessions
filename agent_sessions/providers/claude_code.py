@@ -155,16 +155,40 @@ class ClaudeCodeProvider(SessionProvider):
         except (IOError, Exception):
             return None
 
-        # Detect sub-agent sessions by checking first user prompt
-        # Claude Code sub-agents start with Task tool context
+        # Detect sub-agent/worker sessions
+        # 1. Task tool invocations (subagent_type in prompt)
+        # 2. Merkabah workers (worker-N directories, worker prompts)
+        # 3. Autonomous workers (isolated clone directories)
         if first_user_prompt:
             # Check for Task tool invocation patterns
             if "subagent_type" in first_user_prompt[:200].lower():
                 is_subagent = True
-                # Try to extract subagent type from prompt
                 match = re.search(r'subagent_type["\s:]+([a-zA-Z0-9_-]+)', first_user_prompt[:500])
                 if match:
                     subagent_type = match.group(1)
+
+            # Check for Merkabah worker prompts
+            elif "merkabah worker" in first_user_prompt[:500].lower():
+                is_subagent = True
+                subagent_type = "merkabah-worker"
+
+            # Check for worker prompt patterns
+            elif first_user_prompt.strip().startswith("# Worker Prompt"):
+                is_subagent = True
+                subagent_type = "worker"
+
+        # Check for worker directory patterns (worker-1, worker-2, etc.)
+        if not is_subagent:
+            # Check project path for worker patterns
+            path_str = str(project_dir).lower()
+            if re.search(r'worker-\d+', path_str) or 'merkabah-workers' in path_str:
+                is_subagent = True
+                # Extract worker number if present
+                worker_match = re.search(r'worker-(\d+)', path_str)
+                if worker_match:
+                    subagent_type = f"worker-{worker_match.group(1)}"
+                else:
+                    subagent_type = "worker"
 
         # Generate title from first prompt if not available
         if not title and first_user_prompt:
