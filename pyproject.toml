@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "droid-sessions"
+name = "agent-sessions"
 version = "0.1.0"
-description = "A Textual TUI for browsing and resuming Factory Droid sessions"
+description = "Universal TUI for browsing and resuming sessions from multiple AI coding assistants"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
@@ -25,7 +25,7 @@ classifiers = [
     "Topic :: Software Development :: User Interfaces",
     "Topic :: Utilities",
 ]
-keywords = ["tui", "terminal", "factory", "droid", "ai", "sessions"]
+keywords = ["tui", "terminal", "ai", "sessions", "claude", "cursor", "droid", "coding-assistant"]
 dependencies = [
     "textual>=0.40.0",
     "rich>=13.0.0",
@@ -39,12 +39,16 @@ dev = [
 ]
 
 [project.scripts]
-droid-sessions = "droid_sessions:main"
+agent-sessions = "agent_sessions.main:main"
+ais = "agent_sessions.main:main"
+# Keep old command for backwards compatibility
+droid-sessions = "agent_sessions.main:main"
 
 [project.urls]
-Homepage = "https://github.com/erikjamesfritsch/droid-sessions"
-Repository = "https://github.com/erikjamesfritsch/droid-sessions"
-Issues = "https://github.com/erikjamesfritsch/droid-sessions/issues"
+Homepage = "https://github.com/erikjamesfritsch/agent-sessions"
+Repository = "https://github.com/erikjamesfritsch/agent-sessions"
+Issues = "https://github.com/erikjamesfritsch/agent-sessions/issues"
 
-[tool.setuptools]
-py-modules = ["droid_sessions"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent_sessions*"]

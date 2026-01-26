@@ -1,0 +1,5 @@
+{"type":"session_start","title":"Test Session","cwd":"/home/user/project","sessionTitle":"Test Session"}
+{"type":"message","timestamp":"2024-01-15T10:00:00Z","message":{"role":"user","content":"Please help me with authentication"}}
+{"type":"message","timestamp":"2024-01-15T10:01:00Z","message":{"role":"assistant","content":"I'll help you implement authentication. Let me start by reviewing your project structure."}}
+{"type":"message","timestamp":"2024-01-15T10:02:00Z","message":{"role":"user","content":"Great, please add JWT support"}}
+{"type":"message","timestamp":"2024-01-15T10:03:00Z","message":{"role":"assistant","content":"I've added JWT authentication to your project. Here's what I did:\n\n1. Installed jsonwebtoken package\n2. Created auth middleware\n3. Added login endpoint"}}
