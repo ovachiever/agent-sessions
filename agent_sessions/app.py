@@ -229,18 +229,38 @@ class AgentSessionsBrowser(App):
         parent_list = self.query_one("#parent-list", ListView)
         parent_list.clear()
 
+        # Don't pre-compute children - it's too slow for thousands of sessions
+        # Children are computed lazily when a session is selected
         for session in self.parent_sessions:
-            children = self._get_related_children(session)
-            parent_list.append(ParentSessionItem(session, len(children)))
+            parent_list.append(ParentSessionItem(session, child_count=0))
 
     def _get_related_children(self, parent: Session) -> list[Session]:
-        """Get related child sessions with caching."""
+        """Get related child sessions using fast heuristic matching.
+
+        Matches children by project_path and time proximity (within 2 hours).
+        This avoids parsing JSONL files which is slow.
+        """
         if parent.id not in self._children_cache:
-            provider = get_provider(parent.harness)
-            if provider:
-                self._children_cache[parent.id] = provider.find_children(parent, self.all_sessions)
-            else:
-                self._children_cache[parent.id] = []
+            from datetime import timedelta
+
+            related = []
+            if parent.modified_time:
+                time_window = timedelta(hours=2)
+                for child in self.child_sessions:
+                    # Must be same harness and project
+                    if child.harness != parent.harness:
+                        continue
+                    if child.project_path != parent.project_path:
+                        continue
+                    # Check time proximity
+                    child_time = child.modified_time or child.created_time
+                    if child_time and abs((child_time - parent.modified_time).total_seconds()) < time_window.total_seconds():
+                        related.append(child)
+
+            # Sort by time
+            related.sort(key=lambda s: s.created_time or s.modified_time)
+            self._children_cache[parent.id] = related
+
         return self._children_cache[parent.id]
 
     def action_cycle_filter(self):
@@ -369,6 +389,7 @@ class AgentSessionsBrowser(App):
                 else:
                     detail.show_session(event.item.session, 0)
             else:
+                # Use precomputed children from cache
                 self._update_children_list(event.item.session)
                 child_count = len(self.current_children)
                 detail.show_session(event.item.session, child_count)
