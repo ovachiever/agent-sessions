@@ -53,7 +53,7 @@ class DroidProvider(SessionProvider):
     """Provider for Factory Droid sessions."""
 
     name = "droid"
-    display_name = "Factory Droid"
+    display_name = "FactoryAI Droid"
     icon = "🤖"
     color = "green"
 
