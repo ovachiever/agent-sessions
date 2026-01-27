@@ -40,7 +40,7 @@ class TestDroidProvider:
     def test_provider_attributes(self, droid_provider):
         """Test provider has required attributes."""
         assert droid_provider.name == "droid"
-        assert droid_provider.display_name == "Factory Droid"
+        assert droid_provider.display_name == "FactoryAI Droid"
         assert droid_provider.icon == "🤖"
         assert droid_provider.color == "green"
 

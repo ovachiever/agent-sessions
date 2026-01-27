@@ -48,3 +48,4 @@ def discover_all_sessions():
 # Import providers to trigger registration
 from . import droid  # noqa: F401, E402
 from . import claude_code  # noqa: F401, E402
+from . import cursor  # noqa: F401, E402
