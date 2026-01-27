@@ -16,12 +16,14 @@ A universal TUI for browsing and resuming sessions from multiple AI coding assis
 
 ## Supported Harnesses
 
-| Harness | Status | Icon |
-|---------|--------|------|
-| Factory Droid | ✅ Supported | 🤖 |
-| Claude Code | ✅ Supported | 🧠 |
-| Cursor | 📋 Planned | ⌘ |
-| Aider | 📋 Planned | 🔧 |
+| Harness | Status | Icon | Notes |
+|---------|--------|------|-------|
+| FactoryAI Droid | ✅ Supported | 🤖 | JSONL sessions in `~/.factory/sessions/` |
+| Claude Code | ✅ Supported | 🧠 | JSONL sessions in `~/.claude/projects/` |
+| Cursor | ✅ Supported | ⌘ | SQLite composer sessions |
+| Windsurf | 📋 Planned | 🌊 | VS Code-style storage (needs data) |
+| Aider | 📋 Planned | 🔧 | Project-local `.aider.chat.history.md` |
+| Amp | 📋 Planned | ⚡ | Sourcegraph's agent |
 
 ## Features
 
@@ -125,8 +127,9 @@ agent_sessions/
 ├── providers/
 │   ├── __init__.py      # Provider registry
 │   ├── base.py          # SessionProvider ABC
-│   ├── droid.py         # Factory Droid provider
-│   └── claude_code.py   # Claude Code provider
+│   ├── droid.py         # FactoryAI Droid provider
+│   ├── claude_code.py   # Claude Code provider
+│   └── cursor.py        # Cursor provider
 └── ui/
     ├── __init__.py
     ├── widgets.py       # TUI widgets
@@ -137,8 +140,9 @@ agent_sessions/
 
 | Provider | Location | Format |
 |----------|----------|--------|
-| Factory Droid | `~/.factory/sessions/` | JSONL |
+| FactoryAI Droid | `~/.factory/sessions/` | JSONL |
 | Claude Code | `~/.claude/projects/` | JSONL |
+| Cursor | `~/Library/Application Support/Cursor/` | SQLite |
 
 ## Requirements
 
