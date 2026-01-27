@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from ..cache import SummaryCache, compute_content_hash
+from ..cache import MetadataCache, SummaryCache, compute_content_hash
 from ..models import Session
 from . import register_provider
 from .base import SessionProvider
@@ -75,10 +75,59 @@ class DroidProvider(SessionProvider):
 
         return files
 
+    def _session_from_cache(self, path: Path, cached: dict) -> Session:
+        """Construct Session from cached metadata."""
+        created_time = None
+        if cached.get("created_time"):
+            try:
+                created_time = datetime.fromisoformat(cached["created_time"])
+            except (ValueError, TypeError):
+                pass
+
+        modified_time = datetime.fromtimestamp(path.stat().st_mtime)
+
+        # Get summary from summary cache
+        content_hash = cached.get("content_hash", "")
+        summary = None
+        if cached.get("first_prompt"):
+            summary_cache = SummaryCache()
+            summary = summary_cache.get(path.stem, content_hash)
+
+        return Session(
+            id=path.stem,
+            harness=self.name,
+            raw_path=path,
+            project_path=Path(cached.get("project_path", "")),
+            project_name=cached.get("project_name", ""),
+            title=cached.get("title", "Untitled Session"),
+            first_prompt=cached.get("first_prompt", ""),
+            last_prompt=cached.get("last_prompt", ""),
+            last_response=cached.get("last_response", ""),
+            created_time=created_time,
+            modified_time=modified_time,
+            is_child=cached.get("is_child", False),
+            child_type=cached.get("child_type", ""),
+            model=cached.get("model", "unknown"),
+            summary=summary,
+            content_hash=content_hash,
+            extra={"settings_path": cached.get("settings_path", "")},
+        )
+
     def parse_session(self, path: Path) -> Session | None:
         """Parse a Droid JSONL session file."""
         settings_path = path.with_suffix(".settings.json")
         project_dir = path.parent.name
+
+        # Check metadata cache first
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return None
+
+        cache = MetadataCache()
+        cached = cache.get(path, mtime)
+        if cached:
+            return self._session_from_cache(path, cached)
 
         # Defaults
         model = "unknown"
@@ -161,12 +210,29 @@ class DroidProvider(SessionProvider):
         content_hash = compute_content_hash(first_user_prompt, last_assistant_response)
         summary = None
         if first_user_prompt:
-            cache = SummaryCache()
-            summary = cache.get(path.stem, content_hash)
+            summary_cache = SummaryCache()
+            summary = summary_cache.get(path.stem, content_hash)
 
         # Build project path and name
         project_path = Path(cwd) if cwd else Path(decode_path(project_dir))
         project_name = project_path.name
+
+        # Cache the metadata for next time
+        metadata = {
+            "project_path": str(project_path),
+            "project_name": project_name,
+            "title": title,
+            "first_prompt": first_user_prompt[:2000],  # Truncate for cache size
+            "last_prompt": last_user_prompt[:2000],
+            "last_response": last_assistant_response[:2000],
+            "created_time": created_time.isoformat() if created_time else None,
+            "is_child": is_subagent,
+            "child_type": subagent_type,
+            "model": model,
+            "content_hash": content_hash,
+            "settings_path": str(settings_path),
+        }
+        cache.set(path, mtime, metadata)
 
         return Session(
             id=path.stem,

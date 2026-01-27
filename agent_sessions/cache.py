@@ -1,4 +1,4 @@
-"""Summary cache for AI-generated session summaries."""
+"""Caching for session summaries and metadata."""
 
 import hashlib
 import json
@@ -13,9 +13,66 @@ except ImportError:
     HAS_ANTHROPIC = False
 
 
-# Default cache location (can be overridden)
+# Default cache locations
 DEFAULT_CACHE_PATH = Path.home() / ".factory" / "session-summaries.json"
+METADATA_CACHE_PATH = Path.home() / ".cache" / "agent-sessions" / "metadata.json"
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
+
+
+class MetadataCache:
+    """Cache for parsed session metadata to speed up startup.
+
+    Stores session metadata keyed by file path, with mtime for invalidation.
+    """
+
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._data = {}
+            cls._instance._dirty = False
+            cls._instance._load()
+        return cls._instance
+
+    def _load(self):
+        """Load cache from disk."""
+        if METADATA_CACHE_PATH.exists():
+            try:
+                with open(METADATA_CACHE_PATH) as f:
+                    self._data = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                self._data = {}
+
+    def save(self):
+        """Save cache to disk if dirty."""
+        with self._lock:
+            if not self._dirty:
+                return
+            try:
+                METADATA_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                with open(METADATA_CACHE_PATH, "w") as f:
+                    json.dump(self._data, f)
+                self._dirty = False
+            except IOError:
+                pass
+
+    def get(self, file_path: Path, mtime: float) -> Optional[dict]:
+        """Get cached metadata if mtime matches."""
+        key = str(file_path)
+        with self._lock:
+            entry = self._data.get(key)
+            if entry and entry.get("mtime") == mtime:
+                return entry.get("metadata")
+            return None
+
+    def set(self, file_path: Path, mtime: float, metadata: dict):
+        """Cache session metadata."""
+        key = str(file_path)
+        with self._lock:
+            self._data[key] = {"mtime": mtime, "metadata": metadata}
+            self._dirty = True
 
 
 class SummaryCache:

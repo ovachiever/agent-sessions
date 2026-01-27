@@ -12,7 +12,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, ListView, Static
 
-from .cache import SummaryCache, generate_summary_sync, HAS_ANTHROPIC
+from .cache import MetadataCache, SummaryCache, generate_summary_sync, HAS_ANTHROPIC
 from .models import SearchResult, Session
 from .providers import get_available_providers, get_provider
 from .search import search_sessions
@@ -117,10 +117,32 @@ class AgentSessionsBrowser(App):
         # Get available providers
         self.available_providers = get_available_providers()
 
-        # Update filter bar
+        # Show loading message
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
+        text = Text()
+        text.append("Loading sessions...\n\n", style="bold cyan")
+        for provider in self.available_providers:
+            text.append(f"  {provider.icon} {provider.display_name}\n", style="dim")
+        detail.update(text)
+
+        # Update filter bar (will show 0 sessions initially)
         self._update_filter_bar()
 
+        # Load sessions in background
+        self._load_sessions_background()
+
+    @work(thread=True)
+    def _load_sessions_background(self):
+        """Load sessions in background thread."""
         self._load_sessions()
+        # Save metadata cache after loading
+        MetadataCache().save()
+        # Update UI on main thread
+        self.call_from_thread(self._on_sessions_loaded)
+
+    def _on_sessions_loaded(self):
+        """Called when background session loading completes."""
+        self._update_filter_bar()
         self._populate_parent_list()
 
         parent_list = self.query_one("#parent-list", ListView)
