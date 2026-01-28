@@ -21,6 +21,7 @@ A universal TUI for browsing and resuming sessions from multiple AI coding assis
 | FactoryAI Droid | ✅ Supported | 🤖 | JSONL sessions in `~/.factory/sessions/` |
 | Claude Code | ✅ Supported | 🧠 | JSONL sessions in `~/.claude/projects/` |
 | Cursor | ✅ Supported | ⌘ | SQLite composer sessions |
+| OpenCode | ✅ Supported | 💻 | JSON sessions in `~/.local/share/opencode/` |
 | Windsurf | 📋 Planned | 🌊 | VS Code-style storage (needs data) |
 | Aider | 📋 Planned | 🔧 | Project-local `.aider.chat.history.md` |
 | Amp | 📋 Planned | ⚡ | Sourcegraph's agent |
@@ -129,7 +130,8 @@ agent_sessions/
 │   ├── base.py          # SessionProvider ABC
 │   ├── droid.py         # FactoryAI Droid provider
 │   ├── claude_code.py   # Claude Code provider
-│   └── cursor.py        # Cursor provider
+│   ├── cursor.py        # Cursor provider
+│   └── opencode.py      # OpenCode provider
 └── ui/
     ├── __init__.py
     ├── widgets.py       # TUI widgets
@@ -143,6 +145,7 @@ agent_sessions/
 | FactoryAI Droid | `~/.factory/sessions/` | JSONL |
 | Claude Code | `~/.claude/projects/` | JSONL |
 | Cursor | `~/Library/Application Support/Cursor/` | SQLite |
+| OpenCode | `~/.local/share/opencode/storage/` | JSON |
 
 ## Requirements
 

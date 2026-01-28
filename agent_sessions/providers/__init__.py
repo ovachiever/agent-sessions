@@ -49,3 +49,4 @@ def discover_all_sessions():
 from . import droid  # noqa: F401, E402
 from . import claude_code  # noqa: F401, E402
 from . import cursor  # noqa: F401, E402
+from . import opencode  # noqa: F401, E402

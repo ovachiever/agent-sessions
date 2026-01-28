@@ -2,7 +2,9 @@
 
 import json
 import re
+import shutil
 import sqlite3
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -17,6 +19,37 @@ from .base import SessionProvider
 CURSOR_DATA_DIR = Path.home() / "Library" / "Application Support" / "Cursor"
 GLOBAL_STORAGE_DB = CURSOR_DATA_DIR / "User" / "globalStorage" / "state.vscdb"
 WORKSPACE_STORAGE_DIR = CURSOR_DATA_DIR / "User" / "workspaceStorage"
+
+# Temp DB copy for when Cursor has the DB locked
+_temp_db_path: Optional[Path] = None
+
+
+def _get_db_connection():
+    """Get a connection to the Cursor database, copying if necessary."""
+    global _temp_db_path
+
+    if not GLOBAL_STORAGE_DB.exists():
+        return None
+
+    # Try direct connection first (read-only)
+    try:
+        conn = sqlite3.connect(f"file:{GLOBAL_STORAGE_DB}?mode=ro", uri=True)
+        conn.execute("SELECT 1")  # Test connection
+        return conn
+    except sqlite3.Error:
+        pass
+
+    # DB is locked, copy to temp location
+    try:
+        if _temp_db_path is None or not Path(_temp_db_path).exists():
+            fd, _temp_db_path = tempfile.mkstemp(suffix=".vscdb")
+            import os
+            os.close(fd)
+            shutil.copy(GLOBAL_STORAGE_DB, _temp_db_path)
+
+        return sqlite3.connect(_temp_db_path)
+    except (IOError, sqlite3.Error):
+        return None
 
 
 def extract_text_from_richtext(richtext_json: str) -> str:
@@ -80,8 +113,11 @@ class CursorProvider(SessionProvider):
             return []
 
         files = []
+        conn = _get_db_connection()
+        if conn is None:
+            return files
+
         try:
-            conn = sqlite3.connect(f"file:{GLOBAL_STORAGE_DB}?mode=ro", uri=True)
             cursor = conn.cursor()
 
             # Get all background composer sessions
@@ -165,7 +201,8 @@ class CursorProvider(SessionProvider):
             return self._session_from_cache(path, cached)
 
         # Parse from database
-        if not GLOBAL_STORAGE_DB.exists():
+        conn = _get_db_connection()
+        if conn is None:
             return None
 
         first_prompt = ""
@@ -178,7 +215,6 @@ class CursorProvider(SessionProvider):
         modified_time = None
 
         try:
-            conn = sqlite3.connect(f"file:{GLOBAL_STORAGE_DB}?mode=ro", uri=True)
             cursor = conn.cursor()
 
             # Get composer data
