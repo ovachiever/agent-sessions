@@ -240,15 +240,20 @@ class AgentSessionsBrowser(App):
     def _get_related_children(self, parent: Session) -> list[Session]:
         """Get related child sessions using fast heuristic matching.
 
-        Matches children by project_path and time proximity (within 2 hours).
-        This avoids parsing JSONL files which is slow.
+        Matches children by project_path and time proximity.
+        Time window varies by harness (OpenCode uses 24h, others use 2h).
         """
         if parent.id not in self._children_cache:
             from datetime import timedelta
 
             related = []
             if parent.modified_time:
-                time_window = timedelta(hours=2)
+                # OpenCode sub-agents run throughout a workday, need longer window
+                if parent.harness == "opencode":
+                    time_window = timedelta(hours=24)
+                else:
+                    time_window = timedelta(hours=2)
+
                 for child in self.child_sessions:
                     # Must be same harness and project
                     if child.harness != parent.harness:

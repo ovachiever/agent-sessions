@@ -23,38 +23,30 @@ SESSION_DIR = STORAGE_DIR / "session"
 def _detect_subagent(first_prompt: str) -> tuple[bool, str]:
     """Detect if a session is a sub-agent/single-task based on prompt patterns.
 
+    Only matches very specific OpenCode internal task formats to avoid
+    false positives on regular user sessions.
+
     Returns (is_child, child_type) tuple.
     """
     if not first_prompt:
         return False, ""
 
-    # Check first 500 chars for efficiency
-    prompt_start = first_prompt[:500]
-    prompt_lower = prompt_start.lower()
+    # Check first 200 chars for specific markers
+    prompt_start = first_prompt[:200]
 
-    # System reminder/directive patterns
-    if "<system-reminder>" in prompt_start:
-        return True, "system-task"
-    if "<system_reminder>" in prompt_start:
-        return True, "system-task"
-    if "[system directive:" in prompt_lower:
+    # OpenCode's oh-my-opencode sub-agent format:
+    # "<system-reminder> [SYSTEM DIRECTIVE: OH-MY-OPENCODE - SINGLE TASK ONLY]"
+    if "OH-MY-OPENCODE" in prompt_start:
+        return True, "oh-my-opencode"
+
+    # System reminder at very start indicates injected system content
+    if prompt_start.strip().startswith("<system-reminder>"):
         return True, "system-task"
 
-    # Single task patterns
-    if "single task only" in prompt_lower:
-        return True, "single-task"
-    if "single-task" in prompt_lower:
-        return True, "single-task"
-
-    # File analysis patterns
-    if "analyze this file" in prompt_lower:
+    # Specific file analysis format from OpenCode task dispatch:
+    # "Analyze this file and extract the requested information. Goal:"
+    if prompt_start.startswith("Analyze this file and extract the requested information."):
         return True, "file-analysis"
-    if "extract the requested information" in prompt_lower:
-        return True, "file-analysis"
-
-    # Tool/agent patterns
-    if prompt_start.startswith("Tool:") or prompt_start.startswith("tool:"):
-        return True, "tool-call"
 
     return False, ""
 
