@@ -17,38 +17,45 @@ OPENCODE_DATA_DIR = Path.home() / ".local" / "share" / "opencode"
 STORAGE_DIR = OPENCODE_DATA_DIR / "storage"
 MESSAGE_DIR = STORAGE_DIR / "message"
 PART_DIR = STORAGE_DIR / "part"
-SESSION_DIR = STORAGE_DIR / "session"
+SESSION_META_DIR = STORAGE_DIR / "session"
 
 
-def _detect_subagent(first_prompt: str) -> tuple[bool, str]:
-    """Detect if a session is a sub-agent/single-task based on prompt patterns.
-
-    Only matches very specific OpenCode internal task formats to avoid
-    false positives on regular user sessions.
-
-    Returns (is_child, child_type) tuple.
+def _get_session_metadata(session_id: str) -> dict | None:
+    """Load session metadata from the session directory.
+    
+    OpenCode stores session metadata in storage/session/{project_hash}/{session_id}.json
+    This includes parentID, title, permissions, and timestamps.
     """
+    for project_dir in SESSION_META_DIR.iterdir():
+        if not project_dir.is_dir():
+            continue
+        session_file = project_dir / f"{session_id}.json"
+        if session_file.exists():
+            try:
+                with open(session_file) as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+    return None
+
+
+def _detect_child_type(first_prompt: str) -> str:
+    """Detect child type from prompt content for display purposes."""
     if not first_prompt:
-        return False, ""
-
-    # Check first 200 chars for specific markers
-    prompt_start = first_prompt[:200]
-
-    # OpenCode's oh-my-opencode sub-agent format:
-    # "<system-reminder> [SYSTEM DIRECTIVE: OH-MY-OPENCODE - SINGLE TASK ONLY]"
-    if "OH-MY-OPENCODE" in prompt_start:
-        return True, "oh-my-opencode"
-
-    # System reminder at very start indicates injected system content
-    if prompt_start.strip().startswith("<system-reminder>"):
-        return True, "system-task"
-
-    # Specific file analysis format from OpenCode task dispatch:
-    # "Analyze this file and extract the requested information. Goal:"
-    if prompt_start.startswith("Analyze this file and extract the requested information."):
-        return True, "file-analysis"
-
-    return False, ""
+        return "worker"
+    
+    prompt_start = first_prompt[:500].upper()
+    
+    if "PROMETHEUS" in prompt_start:
+        return "prometheus"
+    elif "SINGLE TASK ONLY" in prompt_start:
+        return "single-task"
+    elif "OH-MY-OPENCODE" in prompt_start:
+        return "oh-my-opencode"
+    elif "FILE-ANALYSIS" in prompt_start or "Analyze this file" in first_prompt[:100]:
+        return "file-analysis"
+    
+    return "worker"
 
 
 @register_provider
@@ -116,6 +123,7 @@ class OpenCodeProvider(SessionProvider):
             modified_time=modified_time,
             is_child=cached.get("is_child", False),
             child_type=cached.get("child_type", ""),
+            parent_id=cached.get("parent_id"),
             model=cached.get("model", "unknown"),
             summary=summary,
             content_hash=content_hash,
@@ -211,24 +219,40 @@ class OpenCodeProvider(SessionProvider):
         last_prompt = user_messages[-1][1] if user_messages else ""
         last_response = assistant_messages[-1][1] if assistant_messages else ""
 
-        # Detect sub-agent sessions
-        is_child, child_type = _detect_subagent(first_prompt)
+        # Load session metadata for parent-child relationship and title
+        session_meta = _get_session_metadata(session_id)
+        parent_id = None
+        session_title = ""
+        
+        if session_meta:
+            parent_id = session_meta.get("parentID")
+            session_title = session_meta.get("title", "")
+            # Use directory from metadata if not found in messages
+            if project_path == Path.home() and session_meta.get("directory"):
+                project_path = Path(session_meta["directory"])
+                project_name = project_path.name
+        
+        # Determine if this is a child session based on parentID from metadata
+        is_child = bool(parent_id)
+        child_type = _detect_child_type(first_prompt) if is_child else ""
 
-        # Generate title from first prompt
-        if first_prompt:
-            first_line = first_prompt.split('\n')[0].strip()
-            # Skip system tags for title
-            if first_line.startswith("<") and ">" in first_line:
-                # Try next line if first is a tag
-                lines = first_prompt.split('\n')
-                for line in lines[1:5]:
-                    line = line.strip()
-                    if line and not line.startswith("<"):
-                        first_line = line
-                        break
-            title = first_line[:80] if first_line else "OpenCode Session"
-        else:
-            title = "OpenCode Session"
+        # Generate title - prefer metadata title, then first prompt
+        title = session_title
+        if not title:
+            if first_prompt:
+                first_line = first_prompt.split('\n')[0].strip()
+                # Skip system tags for title
+                if first_line.startswith("<") and ">" in first_line:
+                    # Try next line if first is a tag
+                    lines = first_prompt.split('\n')
+                    for line in lines[1:5]:
+                        line = line.strip()
+                        if line and not line.startswith("<"):
+                            first_line = line
+                            break
+                title = first_line[:80] if first_line else "OpenCode Session"
+            else:
+                title = "OpenCode Session"
 
         # Compute content hash
         content_hash = compute_content_hash(first_prompt, last_response)
@@ -252,6 +276,7 @@ class OpenCodeProvider(SessionProvider):
             "modified_time": modified_time.isoformat() if modified_time else None,
             "is_child": is_child,
             "child_type": child_type,
+            "parent_id": parent_id,
             "model": model,
             "content_hash": content_hash,
             "extra": {"agent": agent},
@@ -272,6 +297,7 @@ class OpenCodeProvider(SessionProvider):
             modified_time=modified_time,
             is_child=is_child,
             child_type=child_type,
+            parent_id=parent_id,
             model=model,
             summary=summary,
             content_hash=content_hash,
@@ -304,5 +330,16 @@ class OpenCodeProvider(SessionProvider):
         return f"opencode --resume {session.id}"
 
     def find_children(self, parent: Session, all_sessions: list[Session]) -> list[Session]:
-        # OpenCode doesn't have a sub-agent concept currently
-        return []
+        """Find child sessions that have this session as their parent."""
+        if parent.is_child:
+            return []
+        
+        # OpenCode uses explicit parentID in session metadata
+        children = [
+            s for s in all_sessions
+            if s.harness == self.name and s.parent_id == parent.id
+        ]
+        
+        # Sort by created time
+        children.sort(key=lambda s: s.created_time or s.modified_time)
+        return children
