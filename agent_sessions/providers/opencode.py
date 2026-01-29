@@ -20,6 +20,45 @@ PART_DIR = STORAGE_DIR / "part"
 SESSION_DIR = STORAGE_DIR / "session"
 
 
+def _detect_subagent(first_prompt: str) -> tuple[bool, str]:
+    """Detect if a session is a sub-agent/single-task based on prompt patterns.
+
+    Returns (is_child, child_type) tuple.
+    """
+    if not first_prompt:
+        return False, ""
+
+    # Check first 500 chars for efficiency
+    prompt_start = first_prompt[:500]
+    prompt_lower = prompt_start.lower()
+
+    # System reminder/directive patterns
+    if "<system-reminder>" in prompt_start:
+        return True, "system-task"
+    if "<system_reminder>" in prompt_start:
+        return True, "system-task"
+    if "[system directive:" in prompt_lower:
+        return True, "system-task"
+
+    # Single task patterns
+    if "single task only" in prompt_lower:
+        return True, "single-task"
+    if "single-task" in prompt_lower:
+        return True, "single-task"
+
+    # File analysis patterns
+    if "analyze this file" in prompt_lower:
+        return True, "file-analysis"
+    if "extract the requested information" in prompt_lower:
+        return True, "file-analysis"
+
+    # Tool/agent patterns
+    if prompt_start.startswith("Tool:") or prompt_start.startswith("tool:"):
+        return True, "tool-call"
+
+    return False, ""
+
+
 @register_provider
 class OpenCodeProvider(SessionProvider):
     """Provider for OpenCode sessions."""
@@ -180,9 +219,21 @@ class OpenCodeProvider(SessionProvider):
         last_prompt = user_messages[-1][1] if user_messages else ""
         last_response = assistant_messages[-1][1] if assistant_messages else ""
 
+        # Detect sub-agent sessions
+        is_child, child_type = _detect_subagent(first_prompt)
+
         # Generate title from first prompt
         if first_prompt:
             first_line = first_prompt.split('\n')[0].strip()
+            # Skip system tags for title
+            if first_line.startswith("<") and ">" in first_line:
+                # Try next line if first is a tag
+                lines = first_prompt.split('\n')
+                for line in lines[1:5]:
+                    line = line.strip()
+                    if line and not line.startswith("<"):
+                        first_line = line
+                        break
             title = first_line[:80] if first_line else "OpenCode Session"
         else:
             title = "OpenCode Session"
@@ -207,8 +258,8 @@ class OpenCodeProvider(SessionProvider):
             "last_response": last_response[:2000],
             "created_time": created_time.isoformat() if created_time else None,
             "modified_time": modified_time.isoformat() if modified_time else None,
-            "is_child": False,
-            "child_type": "",
+            "is_child": is_child,
+            "child_type": child_type,
             "model": model,
             "content_hash": content_hash,
             "extra": {"agent": agent},
@@ -227,8 +278,8 @@ class OpenCodeProvider(SessionProvider):
             last_response=last_response,
             created_time=created_time,
             modified_time=modified_time,
-            is_child=False,
-            child_type="",
+            is_child=is_child,
+            child_type=child_type,
             model=model,
             summary=summary,
             content_hash=content_hash,
