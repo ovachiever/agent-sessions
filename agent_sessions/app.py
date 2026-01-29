@@ -227,12 +227,15 @@ class AgentSessionsBrowser(App):
     def _populate_parent_list(self):
         """Populate the parent list with sessions."""
         parent_list = self.query_one("#parent-list", ListView)
-        parent_list.clear()
 
-        # Don't pre-compute children - it's too slow for thousands of sessions
-        # Children are computed lazily when a session is selected
-        for session in self.parent_sessions:
-            parent_list.append(ParentSessionItem(session, child_count=0))
+        # Limit displayed items for performance (can scroll to load more)
+        MAX_DISPLAY = 500
+        sessions_to_show = self.parent_sessions[:MAX_DISPLAY]
+
+        # Batch mount all items at once for performance
+        parent_list.clear()
+        items = [ParentSessionItem(session, child_count=0) for session in sessions_to_show]
+        parent_list.mount(*items)
 
     def _get_related_children(self, parent: Session) -> list[Session]:
         """Get related child sessions using fast heuristic matching.
@@ -287,15 +290,19 @@ class AgentSessionsBrowser(App):
         self._populate_parent_list()
 
         # Update header
+        total = len(self.parent_sessions)
+        shown = min(total, 500)
+        count_text = f"{shown}/{total}" if total > 500 else str(total)
+
         if self.active_harness_filter:
             provider = get_provider(self.active_harness_filter)
             if provider:
                 self.query_one("#parent-header", Static).update(
-                    f"[bold]{provider.icon} {provider.display_name}[/] [dim]({len(self.parent_sessions)} sessions)[/]"
+                    f"[bold]{provider.icon} {provider.display_name}[/] [dim]({count_text} sessions)[/]"
                 )
         else:
             self.query_one("#parent-header", Static).update(
-                f"[bold]All Sessions[/] [dim]({len(self.parent_sessions)} newest first)[/]"
+                f"[bold]All Sessions[/] [dim]({count_text} newest first)[/]"
             )
 
         # Reset selection
