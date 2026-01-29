@@ -111,26 +111,49 @@ def cmd_search(args):
 
 
 def cmd_cache(args):
-    """Manage summary cache."""
-    from .cache import SummaryCache, DEFAULT_CACHE_PATH
+    """Manage summary and metadata caches."""
+    from .cache import SummaryCache, DEFAULT_CACHE_PATH, METADATA_CACHE_PATH
 
     if args.action == "clear":
+        cleared = []
         if DEFAULT_CACHE_PATH.exists():
             DEFAULT_CACHE_PATH.unlink()
-            print(f"Cleared cache: {DEFAULT_CACHE_PATH}")
+            cleared.append(f"Summary cache: {DEFAULT_CACHE_PATH}")
+        if METADATA_CACHE_PATH.exists():
+            METADATA_CACHE_PATH.unlink()
+            cleared.append(f"Metadata cache: {METADATA_CACHE_PATH}")
+
+        if cleared:
+            print("Cleared caches:")
+            for c in cleared:
+                print(f"  {c}")
         else:
-            print("Cache file not found.")
+            print("No cache files found.")
     elif args.action == "info":
+        print("Cache info:")
+        print()
         if DEFAULT_CACHE_PATH.exists():
             import json
             with open(DEFAULT_CACHE_PATH) as f:
                 data = json.load(f)
-            print(f"Cache location: {DEFAULT_CACHE_PATH}")
-            print(f"Cached summaries: {len(data)}")
+            print(f"Summary cache: {DEFAULT_CACHE_PATH}")
+            print(f"  Cached summaries: {len(data)}")
             size = DEFAULT_CACHE_PATH.stat().st_size
-            print(f"Cache size: {size / 1024:.1f} KB")
+            print(f"  Size: {size / 1024:.1f} KB")
         else:
-            print("No cache file found.")
+            print(f"Summary cache: not found")
+
+        print()
+        if METADATA_CACHE_PATH.exists():
+            import json
+            with open(METADATA_CACHE_PATH) as f:
+                data = json.load(f)
+            print(f"Metadata cache: {METADATA_CACHE_PATH}")
+            print(f"  Cached sessions: {len(data)}")
+            size = METADATA_CACHE_PATH.stat().st_size
+            print(f"  Size: {size / 1024:.1f} KB")
+        else:
+            print(f"Metadata cache: not found")
 
 
 def main():
