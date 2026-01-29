@@ -576,9 +576,12 @@ class AgentSessionsBrowser(App):
 
         parent_list = self.query_one("#parent-list", ListView)
         parent_list.clear()
-        for session in self._filtered_parents:
-            match_count = len(self._search_results.get(session.id, []))
-            parent_list.append(ParentSessionItem(session, match_count))
+        # Batch mount for performance (search results typically smaller, but be safe)
+        items = [
+            ParentSessionItem(session, len(self._search_results.get(session.id, [])))
+            for session in self._filtered_parents[:500]  # Limit display, not search
+        ]
+        parent_list.mount(*items)
 
         if self._filtered_parents:
             parent_list.index = 0
