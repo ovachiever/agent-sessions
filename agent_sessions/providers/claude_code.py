@@ -24,6 +24,9 @@ def decode_path(encoded: str) -> str:
 def extract_text_content(content, text_only: bool = False) -> str:
     """Extract text from message content (handles both string and list formats)."""
     if isinstance(content, str):
+        # String content - return as-is (skip system reminders)
+        if content.strip().startswith("<system-reminder>"):
+            return ""
         return content
     if isinstance(content, list):
         texts = []
@@ -40,6 +43,56 @@ def extract_text_content(content, text_only: bool = False) -> str:
                 texts.append(item)
         return " ".join(texts)
     return str(content)
+
+
+def detect_worker_session(first_prompt: str, project_dir: str) -> tuple[bool, str]:
+    """Detect if a session is a worker/sub-agent based on prompt content and path.
+    
+    Returns (is_child, child_type) tuple.
+    """
+    path_lower = project_dir.lower()
+    prompt_start = first_prompt[:800] if first_prompt else ""
+    prompt_lower = prompt_start.lower()
+    
+    # 1. Merkabah workers - path pattern
+    if 'merkabah-workers' in path_lower:
+        worker_match = re.search(r'worker-(\d+)', path_lower)
+        if worker_match:
+            return True, f"merkabah-worker-{worker_match.group(1)}"
+        return True, "merkabah-worker"
+    
+    # 2. TORUSv3 workers - path or content pattern
+    if 'torusv3-workers' in path_lower or '-torusv3-workers-' in path_lower:
+        worker_match = re.search(r'worker-(\d+)', path_lower)
+        if worker_match:
+            return True, f"torusv3-worker-{worker_match.group(1)}"
+        return True, "torusv3-worker"
+    
+    if '# worker prompt' in prompt_lower and ('torusv3' in prompt_lower or 'one task' in prompt_lower):
+        return True, "torusv3-worker"
+    
+    # 3. Ophanim workers - path or content pattern
+    if 'ophanim' in path_lower:
+        return True, "ophanim-worker"
+    
+    if '@vision.md' in prompt_lower and '@altar.json' in prompt_lower:
+        return True, "ophanim-worker"
+    
+    if '# wings.md' in prompt_lower and 'one task' in prompt_lower:
+        return True, "ophanim-worker"
+    
+    # 4. Generic worker prompt pattern
+    if prompt_start.strip().startswith("# Worker Prompt"):
+        return True, "worker"
+    
+    # 5. Task tool invocation pattern (subagent_type in prompt)
+    if "subagent_type" in prompt_lower:
+        match = re.search(r'subagent_type["\s:]+([a-zA-Z0-9_-]+)', first_prompt[:500])
+        if match:
+            return True, match.group(1)
+        return True, "task-subagent"
+    
+    return False, ""
 
 
 @register_provider
@@ -207,40 +260,8 @@ class ClaudeCodeProvider(SessionProvider):
         except (IOError, Exception):
             return None
 
-        # Detect sub-agent/worker sessions
-        # 1. Task tool invocations (subagent_type in prompt)
-        # 2. Merkabah workers (worker-N directories, worker prompts)
-        # 3. Autonomous workers (isolated clone directories)
-        if first_user_prompt:
-            # Check for Task tool invocation patterns
-            if "subagent_type" in first_user_prompt[:200].lower():
-                is_subagent = True
-                match = re.search(r'subagent_type["\s:]+([a-zA-Z0-9_-]+)', first_user_prompt[:500])
-                if match:
-                    subagent_type = match.group(1)
-
-            # Check for Merkabah worker prompts
-            elif "merkabah worker" in first_user_prompt[:500].lower():
-                is_subagent = True
-                subagent_type = "merkabah-worker"
-
-            # Check for worker prompt patterns
-            elif first_user_prompt.strip().startswith("# Worker Prompt"):
-                is_subagent = True
-                subagent_type = "worker"
-
-        # Check for worker directory patterns (worker-1, worker-2, etc.)
-        if not is_subagent:
-            # Check project path for worker patterns
-            path_str = str(project_dir).lower()
-            if re.search(r'worker-\d+', path_str) or 'merkabah-workers' in path_str:
-                is_subagent = True
-                # Extract worker number if present
-                worker_match = re.search(r'worker-(\d+)', path_str)
-                if worker_match:
-                    subagent_type = f"worker-{worker_match.group(1)}"
-                else:
-                    subagent_type = "worker"
+        # Detect sub-agent/worker sessions using comprehensive detection
+        is_subagent, subagent_type = detect_worker_session(first_user_prompt, project_dir)
 
         # Generate title from first prompt if not available
         if not title and first_user_prompt:
