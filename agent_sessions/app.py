@@ -232,10 +232,73 @@ class AgentSessionsBrowser(App):
         MAX_DISPLAY = 500
         sessions_to_show = self.parent_sessions[:MAX_DISPLAY]
 
+        # Pre-compute child counts for display
+        # Use fast heuristic matching (same as _get_related_children)
+        child_counts = self._compute_child_counts(sessions_to_show)
+
         # Batch mount all items at once for performance
         parent_list.clear()
-        items = [ParentSessionItem(session, child_count=0) for session in sessions_to_show]
+        items = [
+            ParentSessionItem(session, child_count=child_counts.get(session.id, 0))
+            for session in sessions_to_show
+        ]
         parent_list.mount(*items)
+
+    def _compute_child_counts(self, parents: list[Session]) -> dict[str, int]:
+        """Pre-compute child counts for a list of parent sessions.
+
+        Uses fast heuristic matching by project_path and time proximity.
+        Returns dict mapping parent session ID to child count.
+        """
+        from datetime import timedelta
+
+        counts: dict[str, int] = {}
+
+        # Group children by (harness, project_path) for faster lookup
+        children_by_key: dict[tuple[str, str], list[Session]] = {}
+        for child in self.child_sessions:
+            key = (child.harness, str(child.project_path))
+            if key not in children_by_key:
+                children_by_key[key] = []
+            children_by_key[key].append(child)
+
+        for parent in parents:
+            if parent.is_child or not parent.modified_time:
+                counts[parent.id] = 0
+                continue
+
+            # Check cache first
+            if parent.id in self._children_cache:
+                counts[parent.id] = len(self._children_cache[parent.id])
+                continue
+
+            # Look up children by same harness and project
+            key = (parent.harness, str(parent.project_path))
+            potential_children = children_by_key.get(key, [])
+
+            if not potential_children:
+                counts[parent.id] = 0
+                continue
+
+            # Time window varies by harness
+            if parent.harness == "opencode":
+                time_window = timedelta(hours=24)
+            else:
+                time_window = timedelta(hours=2)
+
+            # Count children within time window
+            related = []
+            for child in potential_children:
+                child_time = child.modified_time or child.created_time
+                if child_time and abs((child_time - parent.modified_time).total_seconds()) < time_window.total_seconds():
+                    related.append(child)
+
+            # Cache the result
+            related.sort(key=lambda s: s.created_time or s.modified_time)
+            self._children_cache[parent.id] = related
+            counts[parent.id] = len(related)
+
+        return counts
 
     def _get_related_children(self, parent: Session) -> list[Session]:
         """Get related child sessions using fast heuristic matching.
