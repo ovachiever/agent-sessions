@@ -745,3 +745,65 @@ class SessionDatabase:
             embedding_model=row["embedding_model"],
             created_at=row["created_at"],
         )
+
+    def search_messages_fts(
+        self, query: str, limit: int = 100
+    ) -> list[tuple[str, float]]:
+        """Search messages via FTS5. Returns (session_id, bm25_score) - lower scores = more relevant."""
+        self._ensure_schema()
+        conn = self._get_connection()
+        safe_query = query.replace('"', '""')
+        rows = conn.execute(
+            """
+            SELECT m.session_id, bm25(messages_fts) as score
+            FROM messages_fts
+            JOIN messages m ON messages_fts.rowid = m.rowid
+            WHERE messages_fts MATCH ?
+            GROUP BY m.session_id
+            ORDER BY score
+            LIMIT ?
+            """,
+            (f'"{safe_query}"', limit),
+        ).fetchall()
+        return [(row["session_id"], row["score"]) for row in rows]
+
+    def search_sessions_fts(
+        self, query: str, limit: int = 100
+    ) -> list[tuple[str, float]]:
+        """Search session metadata via FTS5. Returns (session_id, bm25_score) - lower scores = more relevant."""
+        self._ensure_schema()
+        conn = self._get_connection()
+        safe_query = query.replace('"', '""')
+        rows = conn.execute(
+            """
+            SELECT s.id, bm25(sessions_fts) as score
+            FROM sessions_fts
+            JOIN sessions s ON sessions_fts.rowid = s.rowid
+            WHERE sessions_fts MATCH ?
+            ORDER BY score
+            LIMIT ?
+            """,
+            (f'"{safe_query}"', limit),
+        ).fetchall()
+        return [(row["id"], row["score"]) for row in rows]
+
+    def get_all_chunk_embeddings(self) -> list[tuple[str, int, bytes]]:
+        self._ensure_schema()
+        conn = self._get_connection()
+        rows = conn.execute(
+            """
+            SELECT session_id, id, embedding
+            FROM chunks
+            WHERE embedding IS NOT NULL
+            ORDER BY session_id, chunk_index
+            """
+        ).fetchall()
+        return [(row["session_id"], row["id"], row["embedding"]) for row in rows]
+
+    def count_chunks_with_embeddings(self) -> int:
+        self._ensure_schema()
+        conn = self._get_connection()
+        row = conn.execute(
+            "SELECT COUNT(*) as c FROM chunks WHERE embedding IS NOT NULL"
+        ).fetchone()
+        return row["c"] if row else 0
