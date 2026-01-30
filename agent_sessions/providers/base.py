@@ -70,3 +70,27 @@ class SessionProvider(ABC):
         Default implementation returns empty list.
         """
         return []
+
+    def discover_sessions_fast(self) -> dict[str, int]:
+        """Discover sessions with minimal parsing - just IDs and mtimes.
+        
+        Returns dict mapping session_id to file mtime (as int timestamp).
+        Used for incremental indexing to detect changed sessions.
+        """
+        result = {}
+        for path in self.discover_session_files():
+            try:
+                session_id = path.stem
+                mtime = int(path.stat().st_mtime)
+                result[session_id] = mtime
+            except OSError:
+                continue
+        return result
+
+    def get_session_messages(self, session: Session) -> list[dict]:
+        """Get all messages from a session for indexing.
+        
+        Returns list of dicts with keys: id, role, content, timestamp (optional).
+        Default implementation returns empty list - override in subclasses.
+        """
+        return []

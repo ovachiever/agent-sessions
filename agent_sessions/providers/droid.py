@@ -340,6 +340,42 @@ class DroidProvider(SessionProvider):
                             related.append(subagent)
                             break
 
-        # Sort by created time
-        related.sort(key=lambda s: s.created_time or s.modified_time)
+        related.sort(key=lambda s: s.created_time or s.modified_time or datetime.min)
         return related
+
+    def get_session_messages(self, session: Session) -> list[dict]:
+        messages = []
+        try:
+            with open(session.raw_path) as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    try:
+                        data = json.loads(line)
+                        if data.get("type") != "message":
+                            continue
+                            
+                        msg = data.get("message", {})
+                        role = msg.get("role")
+                        if role not in ("user", "assistant"):
+                            continue
+
+                        text_only = (role == "user")
+                        content = extract_text_content(msg.get("content", ""), text_only=text_only)
+                        if not content or "<system-reminder>" in content[:100]:
+                            continue
+
+                        timestamp = data.get("timestamp")
+                        msg_id = data.get("uuid", f"{session.id}_{len(messages)}")
+
+                        messages.append({
+                            "id": msg_id,
+                            "role": role,
+                            "content": content,
+                            "timestamp": timestamp,
+                        })
+                    except json.JSONDecodeError:
+                        continue
+        except (IOError, Exception):
+            pass
+        return messages

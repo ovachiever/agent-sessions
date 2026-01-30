@@ -341,5 +341,53 @@ class OpenCodeProvider(SessionProvider):
         ]
         
         # Sort by created time
-        children.sort(key=lambda s: s.created_time or s.modified_time)
+        children.sort(key=lambda s: s.created_time or s.modified_time or datetime.min)
         return children
+
+    def discover_sessions_fast(self) -> dict[str, int]:
+        if not MESSAGE_DIR.exists():
+            return {}
+
+        result = {}
+        for session_dir in MESSAGE_DIR.iterdir():
+            if not session_dir.is_dir() or not session_dir.name.startswith("ses_"):
+                continue
+            try:
+                message_files = list(session_dir.glob("*.json"))
+                if message_files:
+                    max_mtime = max(int(f.stat().st_mtime) for f in message_files)
+                    result[session_dir.name] = max_mtime
+            except OSError:
+                continue
+        return result
+
+    def get_session_messages(self, session: Session) -> list[dict]:
+        session_id = session.id
+        message_session_dir = MESSAGE_DIR / session_id
+        if not message_session_dir.exists():
+            return []
+
+        messages = []
+        for msg_file in sorted(message_session_dir.glob("*.json"), key=lambda f: f.name):
+            try:
+                with open(msg_file) as f:
+                    msg = json.load(f)
+
+                msg_id = msg.get("id", msg_file.stem)
+                role = msg.get("role", "")
+                content = self._get_message_content(msg_id)
+                
+                time_data = msg.get("time", {})
+                timestamp = time_data.get("created")
+
+                if content and role:
+                    messages.append({
+                        "id": msg_id,
+                        "role": role,
+                        "content": content,
+                        "timestamp": timestamp,
+                    })
+            except (json.JSONDecodeError, IOError):
+                continue
+
+        return messages
