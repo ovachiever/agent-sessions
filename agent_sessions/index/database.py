@@ -2,6 +2,7 @@ import json
 import sqlite3
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -470,7 +471,9 @@ class SessionDatabase:
         is_child: Optional[bool] = None,
         limit: int = 1000,
         offset: int = 0,
-    ) -> list[SessionRow]:
+    ):
+        from ..models import Session
+        
         self._ensure_schema()
         conn = self._get_connection()
         conditions = []
@@ -501,9 +504,13 @@ class SessionDatabase:
             params,
         ).fetchall()
 
-        return [self._row_to_session(r) for r in rows]
+        return [self._sessionrow_to_session(self._row_to_session(r)) for r in rows]
 
-    def get_parents(self, harness: Optional[str] = None) -> list[SessionRow]:
+    def get_all_sessions(self):
+        """Get all sessions without filters."""
+        return self.get_sessions(limit=10000)
+
+    def get_parents(self, harness: Optional[str] = None):
         return self.get_sessions(harness=harness, is_child=False)
 
     def get_children(
@@ -718,6 +725,33 @@ class SessionDatabase:
             file_mtime=row["file_mtime"],
             indexed_at=row["indexed_at"],
             auto_tags=row["auto_tags"],
+        )
+
+    def _sessionrow_to_session(self, row: SessionRow):
+        """Convert SessionRow namedtuple to Session dataclass."""
+        from ..models import Session
+        
+        return Session(
+            id=row.id,
+            harness=row.harness,
+            raw_path=Path(row.file_path) if row.file_path else Path(),
+            project_path=Path(row.project_path) if row.project_path else Path(),
+            project_name=row.project_name or "",
+            title="",
+            first_prompt=row.first_prompt_preview or "",
+            last_prompt="",
+            last_response="",
+            created_time=datetime.fromtimestamp(row.timestamp) if row.timestamp else None,
+            modified_time=datetime.fromtimestamp(row.timestamp_end) if row.timestamp_end else None,
+            is_child=row.is_child,
+            child_type=row.child_type or "",
+            parent_id=row.parent_id,
+            model="",
+            tool_calls=[],
+            tokens_used=None,
+            summary=None,
+            content_hash="",
+            extra={},
         )
 
     def _row_to_message(self, row: sqlite3.Row) -> MessageRow:

@@ -13,6 +13,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, ListView, Static
 
 from .cache import MetadataCache, SummaryCache, generate_summary_sync, HAS_ANTHROPIC
+from .index import SessionDatabase, SessionIndexer, HybridSearch
 from .models import SearchResult, Session
 from .providers import get_available_providers, get_provider
 from .search import search_sessions
@@ -94,6 +95,11 @@ class AgentSessionsBrowser(App):
         self._summary_queue: Queue = Queue()
         self._summary_generating = False
 
+        # Database and indexing
+        self.db = SessionDatabase()
+        self.indexer = SessionIndexer(self.db, self.available_providers)
+        self.search_engine = HybridSearch(self.db)
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Horizontal():
@@ -127,6 +133,9 @@ class AgentSessionsBrowser(App):
 
         # Update filter bar (will show 0 sessions initially)
         self._update_filter_bar()
+
+        # Start background indexing
+        self._run_incremental_index()
 
         # Load sessions in background
         self._load_sessions_background()
@@ -193,17 +202,13 @@ class AgentSessionsBrowser(App):
         filter_bar.update(text)
 
     def _load_sessions(self):
-        """Load sessions from all available providers."""
-        self.all_sessions = []
+        """Load sessions from database."""
+        # Load from database
+        self.all_sessions = self.db.get_all_sessions()
 
-        for provider in self.available_providers:
-            sessions = provider.load_sessions()
-
-            # Apply project filter
-            if self.project_filter:
-                sessions = [s for s in sessions if self.project_filter.lower() in s.project_name.lower()]
-
-            self.all_sessions.extend(sessions)
+        # Apply project filter
+        if self.project_filter:
+            self.all_sessions = [s for s in self.all_sessions if self.project_filter.lower() in s.project_name.lower()]
 
         # Sort by modified time
         self.all_sessions.sort(key=lambda s: s.modified_time or s.created_time, reverse=True)
@@ -427,6 +432,18 @@ class AgentSessionsBrowser(App):
 
         self._summary_generating = False
 
+    @work(exclusive=True, thread=True)
+    def _run_incremental_index(self):
+        """Background worker for incremental indexing."""
+        try:
+            self.call_from_thread(self.notify, "Indexing sessions...")
+            stats = self.indexer.incremental_update()
+            if stats['sessions_updated'] > 0:
+                msg = f"Indexed {stats['sessions_updated']} sessions"
+                self.call_from_thread(self.notify, msg)
+        except Exception as e:
+            self.log.error(f"Indexing failed: {e}")
+
     def _refresh_session_item(self, session_id: str):
         """Refresh a specific session item in the list."""
         parent_list = self.query_one("#parent-list", ListView)
@@ -616,9 +633,13 @@ class AgentSessionsBrowser(App):
         self._search_mode = True
         self._search_query = query.strip()
 
-        # Search respects current harness filter
-        sessions_to_search = self.parent_sessions + self.child_sessions
-        self._search_results = search_sessions(sessions_to_search, self._search_query)
+        # Use hybrid search (FTS + semantic)
+        results = self.search_engine.search(self._search_query, limit=500)
+        self._search_results = {}
+        for result in results:
+            if result.session_id not in self._search_results:
+                self._search_results[result.session_id] = []
+            self._search_results[result.session_id].append(result)
 
         matching_parent_ids = set()
         for session_id in self._search_results:
