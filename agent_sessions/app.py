@@ -134,10 +134,7 @@ class AgentSessionsBrowser(App):
         # Update filter bar (will show 0 sessions initially)
         self._update_filter_bar()
 
-        # Start background indexing
-        self._run_incremental_index()
-
-        # Load sessions in background
+        # Load sessions in background (indexing is done separately via CLI)
         self._load_sessions_background()
 
     @work(thread=True)
