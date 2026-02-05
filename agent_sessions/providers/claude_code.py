@@ -54,6 +54,23 @@ def detect_worker_session(first_prompt: str, project_dir: str) -> tuple[bool, st
     prompt_start = first_prompt[:800] if first_prompt else ""
     prompt_lower = prompt_start.lower()
     
+    # 0. Warmup sessions - Claude Code initialization sessions (isSidechain=True)
+    # These are not real conversations, just warmup/preload sessions
+    if first_prompt and first_prompt.strip().lower() == "warmup":
+        return True, "warmup"
+    
+    # 0.5. TORUS loop sessions - autonomous loop workers
+    if 'torus loop' in prompt_lower:
+        return True, "torus-loop"
+    
+    # 0.6. Autopilot sessions - no human review workers
+    if 'autopilot' in prompt_lower and ('no human review' in prompt_lower or 'no questions' in prompt_lower):
+        return True, "autopilot"
+    
+    # 0.7. SPIRIT/WHEEL file reference pattern (TORUS orchestration)
+    if prompt_start.strip().startswith('@') and ('@spirit.md' in prompt_lower or '@wheel.md' in prompt_lower):
+        return True, "torus-orchestrated"
+    
     # 1. Merkabah workers - path pattern
     if 'merkabah-workers' in path_lower:
         worker_match = re.search(r'worker-(\d+)', path_lower)
