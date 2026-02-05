@@ -19,6 +19,10 @@ class SessionProvider(ABC):
     icon: str = ""  # emoji for UI: "🤖", "🧠"
     color: str = ""  # for UI theming
 
+    # Whether discover_session_files() is cheap enough for startup auto-index.
+    # Providers with virtual paths or DB queries should set this to False.
+    fast_discovery: bool = True
+
     @abstractmethod
     def get_sessions_dir(self) -> Path:
         """Return the directory where sessions are stored."""

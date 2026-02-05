@@ -103,6 +103,7 @@ class CursorProvider(SessionProvider):
     display_name = "Cursor"
     icon = "⌘"
     color = "blue"
+    fast_discovery = False
 
     def get_sessions_dir(self) -> Path:
         return CURSOR_DATA_DIR

@@ -118,12 +118,16 @@ class SessionIndexer:
         )
         return stats
 
-    def incremental_update(self) -> dict:
+    def incremental_update(self, max_age_hours: int | None = None) -> dict:
         """
         Perform incremental update - only index new or changed sessions.
 
         Uses file mtime vs indexed_at to detect changes.
         Special handling for OpenCode: checks all message file mtimes.
+
+        Args:
+            max_age_hours: If set, only index new sessions modified within this many hours.
+                Already-indexed sessions that changed are always re-indexed regardless.
 
         Returns:
             Stats dict with sessions_indexed, messages_indexed, chunks_created, time_ms
@@ -135,6 +139,10 @@ class SessionIndexer:
             "chunks_created": 0,
             "time_ms": 0,
         }
+
+        age_cutoff = None
+        if max_age_hours is not None:
+            age_cutoff = int(time.time()) - (max_age_hours * 3600)
 
         indexed_sessions: dict[str, tuple[int, int]] = {}
         for row in self.db.get_session_rows():
@@ -149,6 +157,10 @@ class SessionIndexer:
             if not provider.is_available():
                 continue
 
+            # Skip slow-discovery providers during quick startup sync
+            if age_cutoff and not provider.fast_discovery:
+                continue
+
             for path in provider.discover_session_files():
                 session_id = path.stem
                 
@@ -158,14 +170,13 @@ class SessionIndexer:
 
                 needs_index = False
                 if session_id not in indexed_sessions:
+                    if age_cutoff and file_mtime < age_cutoff:
+                        continue
                     needs_index = True
                 else:
                     stored_mtime, indexed_at = indexed_sessions[session_id]
                     if file_mtime > indexed_at:
                         needs_index = True
-                    elif provider.name == "opencode":
-                        if self._opencode_has_new_messages(session_id, indexed_at):
-                            needs_index = True
 
                 if needs_index:
                     sessions_to_index.append((provider, path))

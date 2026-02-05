@@ -66,6 +66,7 @@ class OpenCodeProvider(SessionProvider):
     display_name = "OpenCode"
     icon = "💻"
     color = "magenta"
+    fast_discovery = False
 
     def get_sessions_dir(self) -> Path:
         return OPENCODE_DATA_DIR

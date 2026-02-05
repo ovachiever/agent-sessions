@@ -10,7 +10,7 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header, Input, ListView, Static
+from textual.widgets import Footer, Header, Input, ListView, LoadingIndicator, Static
 
 from .cache import MetadataCache, SummaryCache, generate_summary_sync, HAS_ANTHROPIC
 from .index import SessionDatabase, SessionIndexer, HybridSearch
@@ -36,6 +36,29 @@ FILTER_CSS = """
 
 #filter-bar.hidden {
     display: none;
+}
+
+#loading-container {
+    width: 100%;
+    height: 100%;
+    align: center middle;
+    display: none;
+}
+
+#loading-container.visible {
+    display: block;
+}
+
+#loading-status {
+    text-align: center;
+    width: 100%;
+    padding: 1;
+    color: $text-muted;
+}
+
+#loading-indicator {
+    width: 100%;
+    height: 3;
 }
 """
 
@@ -112,6 +135,9 @@ class AgentSessionsBrowser(App):
                     yield Static("[bold]Sub-agents[/] [dim](for selected session)[/]", id="subagent-header", classes="list-header")
                     yield ListView(id="subagent-list")
             with Vertical(id="detail-container"):
+                with Vertical(id="loading-container"):
+                    yield LoadingIndicator(id="loading-indicator")
+                    yield Static("Syncing sessions...", id="loading-status")
                 yield SessionDetailPanel(id="detail-panel")
         yield Footer()
 
@@ -123,32 +149,44 @@ class AgentSessionsBrowser(App):
         self.available_providers = get_available_providers()
         self.indexer = SessionIndexer(self.db, self.available_providers)
 
-        # Show loading message
-        detail = self.query_one("#detail-panel", SessionDetailPanel)
-        text = Text()
-        text.append("Indexing & loading sessions...\n\n", style="bold cyan")
-        for provider in self.available_providers:
-            text.append(f"  {provider.icon} {provider.display_name}\n", style="dim")
-        detail.update(text)
+        # Show loading indicator
+        self.query_one("#loading-container").add_class("visible")
+        self.query_one("#detail-panel").display = False
 
         # Update filter bar (will show 0 sessions initially)
         self._update_filter_bar()
 
         self._load_sessions_background()
 
+    def _set_loading_status(self, message: str):
+        """Update loading status text (must be called from main thread)."""
+        self.query_one("#loading-status", Static).update(message)
+
     @work(thread=True)
     def _load_sessions_background(self):
         """Auto-index new/changed sessions, then load from DB."""
         try:
-            self.indexer.incremental_update()
+            self.call_from_thread(self._set_loading_status, "Checking for new sessions...")
+            stats = self.indexer.incremental_update(max_age_hours=48)
+            if stats["sessions_indexed"] > 0:
+                self.call_from_thread(
+                    self._set_loading_status,
+                    f"Indexed {stats['sessions_indexed']} new sessions, loading..."
+                )
+            else:
+                self.call_from_thread(self._set_loading_status, "Loading sessions...")
         except Exception:
-            pass
+            self.call_from_thread(self._set_loading_status, "Loading sessions...")
         self._load_sessions()
         MetadataCache().save()
         self.call_from_thread(self._on_sessions_loaded)
 
     def _on_sessions_loaded(self):
         """Called when background session loading completes."""
+        # Hide loading, show detail panel
+        self.query_one("#loading-container").remove_class("visible")
+        self.query_one("#detail-panel").display = True
+
         self._update_filter_bar()
         self._populate_parent_list()
 
