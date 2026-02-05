@@ -126,7 +126,7 @@ class AgentSessionsBrowser(App):
         # Show loading message
         detail = self.query_one("#detail-panel", SessionDetailPanel)
         text = Text()
-        text.append("Loading sessions...\n\n", style="bold cyan")
+        text.append("Indexing & loading sessions...\n\n", style="bold cyan")
         for provider in self.available_providers:
             text.append(f"  {provider.icon} {provider.display_name}\n", style="dim")
         detail.update(text)
@@ -134,16 +134,17 @@ class AgentSessionsBrowser(App):
         # Update filter bar (will show 0 sessions initially)
         self._update_filter_bar()
 
-        # Load sessions in background (indexing is done separately via CLI)
         self._load_sessions_background()
 
     @work(thread=True)
     def _load_sessions_background(self):
-        """Load sessions in background thread."""
+        """Auto-index new/changed sessions, then load from DB."""
+        try:
+            self.indexer.incremental_update()
+        except Exception:
+            pass
         self._load_sessions()
-        # Save metadata cache after loading
         MetadataCache().save()
-        # Update UI on main thread
         self.call_from_thread(self._on_sessions_loaded)
 
     def _on_sessions_loaded(self):
