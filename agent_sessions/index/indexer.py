@@ -137,7 +137,7 @@ class SessionIndexer:
         }
 
         indexed_sessions: dict[str, tuple[int, int]] = {}
-        for row in self.db.get_sessions(limit=100000):
+        for row in self.db.get_session_rows():
             if row.file_mtime and row.indexed_at:
                 indexed_sessions[row.id] = (row.file_mtime, row.indexed_at)
 

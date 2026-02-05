@@ -510,6 +510,16 @@ class SessionDatabase:
         """Get all sessions without filters."""
         return self.get_sessions(limit=10000)
 
+    def get_session_rows(self, *, limit: int = 100000) -> list[SessionRow]:
+        """Get raw SessionRow objects (for indexer mtime checks)."""
+        self._ensure_schema()
+        conn = self._get_connection()
+        rows = conn.execute(
+            "SELECT * FROM sessions ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [self._row_to_session(r) for r in rows]
+
     def get_parents(self, harness: Optional[str] = None):
         return self.get_sessions(harness=harness, is_child=False)
 

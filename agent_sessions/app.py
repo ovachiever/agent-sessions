@@ -97,7 +97,6 @@ class AgentSessionsBrowser(App):
 
         # Database and indexing
         self.db = SessionDatabase()
-        self.indexer = SessionIndexer(self.db, self.available_providers)
         self.search_engine = HybridSearch(self.db)
 
     def compose(self) -> ComposeResult:
@@ -120,8 +119,9 @@ class AgentSessionsBrowser(App):
         """Load sessions when app mounts."""
         self.title = "Agent Sessions Browser"
 
-        # Get available providers
+        # Get available providers and create indexer
         self.available_providers = get_available_providers()
+        self.indexer = SessionIndexer(self.db, self.available_providers)
 
         # Show loading message
         detail = self.query_one("#detail-panel", SessionDetailPanel)
