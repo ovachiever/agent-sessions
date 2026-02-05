@@ -12,7 +12,7 @@ from typing import Optional
 from ..cache import MetadataCache, SummaryCache, compute_content_hash
 from ..models import Session
 from . import register_provider
-from .base import SessionProvider
+from .base import SessionProvider, detect_automated_session
 
 
 # Cursor stores data in VS Code-style SQLite databases
@@ -274,6 +274,14 @@ class CursorProvider(SessionProvider):
         if not first_prompt:
             return None
 
+        # Detect automated/system sessions
+        is_child = False
+        child_type = ""
+        is_auto, auto_type = detect_automated_session(first_prompt)
+        if is_auto:
+            is_child = True
+            child_type = auto_type
+
         # Generate title from first prompt
         first_line = first_prompt.split('\n')[0].strip()
         title = first_line[:80] if first_line else "Cursor Session"
@@ -301,8 +309,8 @@ class CursorProvider(SessionProvider):
             "last_response": last_response,
             "created_time": None,
             "modified_time": modified_time.isoformat() if modified_time else None,
-            "is_child": False,
-            "child_type": "",
+            "is_child": is_child,
+            "child_type": child_type,
             "model": model,
             "content_hash": content_hash,
         }
@@ -320,8 +328,8 @@ class CursorProvider(SessionProvider):
             last_response=last_response,
             created_time=created_time,
             modified_time=modified_time,
-            is_child=False,
-            child_type="",
+            is_child=is_child,
+            child_type=child_type,
             model=model,
             summary=summary,
             content_hash=content_hash,

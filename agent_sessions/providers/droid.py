@@ -9,8 +9,7 @@ from typing import Optional
 from ..cache import MetadataCache, SummaryCache, compute_content_hash
 from ..models import Session
 from . import register_provider
-from .base import SessionProvider
-from .claude_code import detect_automated_session
+from .base import SessionProvider, detect_automated_session
 
 
 SESSIONS_DIR = Path.home() / ".factory" / "sessions"
@@ -202,6 +201,10 @@ class DroidProvider(SessionProvider):
                 last_assistant_response = assistant_messages[-1][1]
 
         except (IOError, Exception):
+            return None
+
+        # Skip empty sessions (no messages at all)
+        if not messages:
             return None
 
         # Detect automated/system sessions if not already a sub-agent

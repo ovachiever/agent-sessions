@@ -8,8 +8,7 @@ from typing import Optional
 from ..cache import MetadataCache, SummaryCache, compute_content_hash
 from ..models import Session
 from . import register_provider
-from .base import SessionProvider
-from .claude_code import detect_automated_session
+from .base import SessionProvider, detect_automated_session
 
 
 # OpenCode stores data in XDG-style directories

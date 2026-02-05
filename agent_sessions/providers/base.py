@@ -6,6 +6,59 @@ from pathlib import Path
 from ..models import Session
 
 
+def detect_automated_session(first_prompt: str) -> tuple[bool, str]:
+    """Detect if a session is system-generated/automated rather than human-initiated.
+    
+    These are sessions started by tools, CI bots, system commands, or context injections
+    rather than a human typing a prompt. Shared across all providers.
+    
+    Returns (is_automated, automation_type) tuple.
+    """
+    if not first_prompt or not first_prompt.strip():
+        return False, ""
+    
+    prompt_start = first_prompt[:500].strip()
+    prompt_lower = prompt_start.lower()
+
+    # XML-tagged system content
+    if prompt_start.startswith("<system-notification>"):
+        return True, "system-notification"
+    if prompt_start.startswith("<command-message>"):
+        return True, "command-message"
+    if prompt_start.startswith("<command-instruction>"):
+        return True, "command-instruction"
+    if prompt_start.startswith("<local-command-caveat>"):
+        return True, "command-caveat"
+    if prompt_start.startswith("<ultrawork-mode>"):
+        return True, "ultrawork-mode"
+
+    # Bracketed system directives
+    if prompt_start.startswith("[search-mode]"):
+        return True, "search-mode"
+    if prompt_start.startswith("[analyze-mode]"):
+        return True, "analyze-mode"
+    if prompt_start.startswith("[SYSTEM DIRECTIVE"):
+        return True, "system-directive"
+    if prompt_start.startswith("[COMPACTION CONTEXT"):
+        return True, "compaction-context"
+    if prompt_start.startswith("[GAS TOWN]") or prompt_start.startswith("[gas town]"):
+        return True, "ci-dispatch"
+
+    # Bot/CI dispatches
+    if "polecat dispatched" in prompt_lower:
+        return True, "ci-dispatch"
+    if prompt_lower.startswith("gt boot") or prompt_lower.startswith("gt prime") or prompt_lower.startswith("gt hook"):
+        return True, "ci-dispatch"
+    if prompt_lower.startswith("run `gt hook`") or prompt_lower.startswith("run `gt boot`"):
+        return True, "ci-dispatch"
+
+    # Sub-agent continuation prompts
+    if prompt_lower.startswith("summarize the task tool output above"):
+        return True, "subagent-continuation"
+
+    return False, ""
+
+
 class SessionProvider(ABC):
     """Abstract base class for session providers.
 
