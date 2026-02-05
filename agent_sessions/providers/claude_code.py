@@ -45,6 +45,59 @@ def extract_text_content(content, text_only: bool = False) -> str:
     return str(content)
 
 
+def detect_automated_session(first_prompt: str) -> tuple[bool, str]:
+    """Detect if a session is system-generated/automated rather than human-initiated.
+    
+    These are sessions started by tools, CI bots, system commands, or context injections
+    rather than a human typing a prompt.
+    
+    Returns (is_automated, automation_type) tuple.
+    """
+    if not first_prompt or not first_prompt.strip():
+        return False, ""
+    
+    prompt_start = first_prompt[:500].strip()
+    prompt_lower = prompt_start.lower()
+
+    # XML-tagged system content
+    if prompt_start.startswith("<system-notification>"):
+        return True, "system-notification"
+    if prompt_start.startswith("<command-message>"):
+        return True, "command-message"
+    if prompt_start.startswith("<command-instruction>"):
+        return True, "command-instruction"
+    if prompt_start.startswith("<local-command-caveat>"):
+        return True, "command-caveat"
+    if prompt_start.startswith("<ultrawork-mode>"):
+        return True, "ultrawork-mode"
+
+    # Bracketed system directives
+    if prompt_start.startswith("[search-mode]"):
+        return True, "search-mode"
+    if prompt_start.startswith("[analyze-mode]"):
+        return True, "analyze-mode"
+    if prompt_start.startswith("[SYSTEM DIRECTIVE"):
+        return True, "system-directive"
+    if prompt_start.startswith("[COMPACTION CONTEXT"):
+        return True, "compaction-context"
+    if prompt_start.startswith("[GAS TOWN]") or prompt_start.startswith("[gas town]"):
+        return True, "ci-dispatch"
+
+    # Bot/CI dispatches
+    if "polecat dispatched" in prompt_lower:
+        return True, "ci-dispatch"
+    if prompt_lower.startswith("gt boot") or prompt_lower.startswith("gt prime") or prompt_lower.startswith("gt hook"):
+        return True, "ci-dispatch"
+    if prompt_lower.startswith("run `gt hook`") or prompt_lower.startswith("run `gt boot`"):
+        return True, "ci-dispatch"
+
+    # Sub-agent continuation prompts
+    if prompt_lower.startswith("summarize the task tool output above"):
+        return True, "subagent-continuation"
+
+    return False, ""
+
+
 def detect_worker_session(first_prompt: str, project_dir: str) -> tuple[bool, str]:
     """Detect if a session is a worker/sub-agent based on prompt content and path.
     
@@ -54,31 +107,35 @@ def detect_worker_session(first_prompt: str, project_dir: str) -> tuple[bool, st
     prompt_start = first_prompt[:800] if first_prompt else ""
     prompt_lower = prompt_start.lower()
     
-    # 0. Warmup sessions - Claude Code initialization sessions (isSidechain=True)
-    # These are not real conversations, just warmup/preload sessions
+    # 0. Check for automated/system sessions first
+    is_auto, auto_type = detect_automated_session(first_prompt)
+    if is_auto:
+        return True, auto_type
+
+    # 1. Warmup sessions
     if first_prompt and first_prompt.strip().lower() == "warmup":
         return True, "warmup"
     
-    # 0.5. TORUS loop sessions - autonomous loop workers
+    # 2. TORUS loop sessions
     if 'torus loop' in prompt_lower:
         return True, "torus-loop"
     
-    # 0.6. Autopilot sessions - no human review workers
+    # 3. Autopilot sessions
     if 'autopilot' in prompt_lower and ('no human review' in prompt_lower or 'no questions' in prompt_lower):
         return True, "autopilot"
     
-    # 0.7. SPIRIT/WHEEL file reference pattern (TORUS orchestration)
+    # 4. SPIRIT/WHEEL file reference pattern (TORUS orchestration)
     if prompt_start.strip().startswith('@') and ('@spirit.md' in prompt_lower or '@wheel.md' in prompt_lower):
         return True, "torus-orchestrated"
     
-    # 1. Merkabah workers - path pattern
+    # 5. Merkabah workers - path pattern
     if 'merkabah-workers' in path_lower:
         worker_match = re.search(r'worker-(\d+)', path_lower)
         if worker_match:
             return True, f"merkabah-worker-{worker_match.group(1)}"
         return True, "merkabah-worker"
     
-    # 2. TORUSv3 workers - path or content pattern
+    # 6. TORUSv3 workers
     if 'torusv3-workers' in path_lower or '-torusv3-workers-' in path_lower:
         worker_match = re.search(r'worker-(\d+)', path_lower)
         if worker_match:
@@ -88,21 +145,19 @@ def detect_worker_session(first_prompt: str, project_dir: str) -> tuple[bool, st
     if '# worker prompt' in prompt_lower and ('torusv3' in prompt_lower or 'one task' in prompt_lower):
         return True, "torusv3-worker"
     
-    # 3. Ophanim workers - path or content pattern
+    # 7. Ophanim workers
     if 'ophanim' in path_lower:
         return True, "ophanim-worker"
-    
     if '@vision.md' in prompt_lower and '@altar.json' in prompt_lower:
         return True, "ophanim-worker"
-    
     if '# wings.md' in prompt_lower and 'one task' in prompt_lower:
         return True, "ophanim-worker"
     
-    # 4. Generic worker prompt pattern
+    # 8. Generic worker prompt pattern
     if prompt_start.strip().startswith("# Worker Prompt"):
         return True, "worker"
     
-    # 5. Task tool invocation pattern (subagent_type in prompt)
+    # 9. Task tool invocation pattern
     if "subagent_type" in prompt_lower:
         match = re.search(r'subagent_type["\s:]+([a-zA-Z0-9_-]+)', first_prompt[:500])
         if match:
@@ -208,6 +263,7 @@ class ClaudeCodeProvider(SessionProvider):
         git_branch = ""
         is_subagent = False
         subagent_type = ""
+        is_sidechain = False
 
         # Parse JSONL
         try:
@@ -234,6 +290,9 @@ class ClaudeCodeProvider(SessionProvider):
                                 git_branch = data.get("gitBranch", "")
                             if not session_id:
                                 session_id = data.get("sessionId", path.stem)
+                            # isSidechain is the authoritative sub-agent flag from Claude Code
+                            if data.get("isSidechain"):
+                                is_sidechain = True
 
                         # Get model from assistant messages
                         if msg_type == "assistant":
@@ -277,8 +336,18 @@ class ClaudeCodeProvider(SessionProvider):
         except (IOError, Exception):
             return None
 
-        # Detect sub-agent/worker sessions using comprehensive detection
-        is_subagent, subagent_type = detect_worker_session(first_user_prompt, project_dir)
+        # Skip empty sessions (no messages at all)
+        if not messages:
+            return None
+
+        # isSidechain from Claude Code is authoritative for sub-agent detection
+        if is_sidechain:
+            is_subagent = True
+            subagent_type = subagent_type or "sidechain"
+        
+        # Also check prompt-based heuristics for worker/automated sessions
+        if not is_subagent:
+            is_subagent, subagent_type = detect_worker_session(first_user_prompt, project_dir)
 
         # Generate title from first prompt if not available
         if not title and first_user_prompt:

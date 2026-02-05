@@ -9,6 +9,7 @@ from ..cache import MetadataCache, SummaryCache, compute_content_hash
 from ..models import Session
 from . import register_provider
 from .base import SessionProvider
+from .claude_code import detect_automated_session
 
 
 # OpenCode stores data in XDG-style directories
@@ -236,6 +237,13 @@ class OpenCodeProvider(SessionProvider):
         # Determine if this is a child session based on parentID from metadata
         is_child = bool(parent_id)
         child_type = _detect_child_type(first_prompt) if is_child else ""
+        
+        # Also detect automated/system sessions
+        if not is_child:
+            is_auto, auto_type = detect_automated_session(first_prompt)
+            if is_auto:
+                is_child = True
+                child_type = auto_type
 
         # Generate title - prefer metadata title, then first prompt
         title = session_title

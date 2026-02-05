@@ -10,6 +10,7 @@ from ..cache import MetadataCache, SummaryCache, compute_content_hash
 from ..models import Session
 from . import register_provider
 from .base import SessionProvider
+from .claude_code import detect_automated_session
 
 
 SESSIONS_DIR = Path.home() / ".factory" / "sessions"
@@ -202,6 +203,13 @@ class DroidProvider(SessionProvider):
 
         except (IOError, Exception):
             return None
+
+        # Detect automated/system sessions if not already a sub-agent
+        if not is_subagent:
+            is_auto, auto_type = detect_automated_session(first_user_prompt)
+            if is_auto:
+                is_subagent = True
+                subagent_type = auto_type
 
         # Get modified time from file
         modified_time = datetime.fromtimestamp(path.stat().st_mtime)
