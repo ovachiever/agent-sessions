@@ -15,7 +15,7 @@ HAS_OPENAI = importlib.util.find_spec("openai") is not None
 # Default cache locations
 DEFAULT_CACHE_PATH = Path.home() / ".cache" / "agent-sessions" / "summaries.json"
 METADATA_CACHE_PATH = Path.home() / ".cache" / "agent-sessions" / "metadata.json"
-SUMMARY_MODEL = "gpt-5-nano"
+SUMMARY_MODEL = "gpt-5.2"
 
 
 class MetadataCache:

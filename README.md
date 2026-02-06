@@ -91,7 +91,7 @@ Modifiers: `harness:`, `project:`, `after:` (e.g. `7d`, `1w`), `before:` (date o
 - **Full-text search** -- FTS5-indexed across all messages, with optional semantic search
 - **Full transcripts** -- read any session's complete conversation
 - **Session resume** -- jump back into any session with the right tool, in the right directory
-- **AI summaries** -- auto-generated one-line summaries via GPT-5 nano (optional)
+- **AI summaries** -- auto-generated one-line summaries via GPT-5.2 (optional)
 - **Incremental indexing** -- fast startup, only processes new/changed sessions
 
 ## Optional Dependencies
@@ -112,7 +112,7 @@ export OPENAI_API_KEY="sk-..."
 
 With the `ai` extra installed and key set, you get:
 
-- **AI summaries** -- GPT-5 nano generates short one-line summaries for each session in the background. Summaries are cached in a local SQLite database so each session is only summarized once. You'll see lines flip from grey to white in real-time as they're generated.
+- **AI summaries** -- GPT-5.2 generates short one-line summaries for each session in the background. Summaries are cached in a local SQLite database so each session is only summarized once. You'll see lines flip from grey to white in real-time as they're generated.
 - **Semantic search** -- search uses OpenAI embeddings alongside FTS5 for hybrid keyword + semantic matching, so you can find sessions by meaning, not just exact words.
 
 ## Adding a Provider

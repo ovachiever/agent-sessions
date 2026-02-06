@@ -302,7 +302,7 @@ class AgentSessionsBrowser(App):
                 self.db.upsert_summary(
                     session_id=session_id,
                     summary=summary_text,
-                    model="gpt-5-nano",
+                    model="gpt-5.2",
                     content_hash=entry.get("hash", ""),
                     created_at=int(_time.time()),
                 )
@@ -548,7 +548,7 @@ class AgentSessionsBrowser(App):
                 self.db.upsert_summary(
                     session_id=session.id,
                     summary=summary,
-                    model="gpt-5-nano",
+                    model="gpt-5.2",
                     content_hash=session.content_hash or "",
                     created_at=int(time.time()),
                 )
