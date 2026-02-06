@@ -16,7 +16,7 @@
 If you use more than one AI coding assistant, your conversations are scattered across different directories, formats, and tools. **agent-sessions** unifies them into a single, fast terminal interface. Search across all your sessions at once, view full transcripts, and resume any conversation instantly -- regardless of which tool started it.
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="agent-sessions TUI" width="900">
+  <img src="assets/screenshot.jpg" alt="agent-sessions TUI" width="900">
 </p>
 
 ## Supported Providers
