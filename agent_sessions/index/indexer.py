@@ -55,6 +55,7 @@ class SessionIndexer:
     def full_reindex(
         self,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        metadata_only: bool = False,
     ) -> dict:
         """
         Perform full reindex of all sessions from all providers.
@@ -90,7 +91,7 @@ class SessionIndexer:
                 if not session:
                     continue
 
-                result = self._index_session(session, provider)
+                result = self._index_session(session, provider, metadata_only=metadata_only)
                 if result:
                     stats["sessions_indexed"] += 1
                     stats["messages_indexed"] += result["messages"]
@@ -108,7 +109,10 @@ class SessionIndexer:
                 logger.warning(f"Failed to index {path}: {e}")
                 continue
 
-        self._update_all_project_stats(projects)
+        try:
+            self._update_all_project_stats(projects)
+        except Exception as e:
+            logger.warning(f"Failed to update project stats: {e}")
 
         stats["time_ms"] = int((time.time() - start_time) * 1000)
         logger.info(
@@ -218,11 +222,17 @@ class SessionIndexer:
         self,
         session: Session,
         provider: SessionProvider,
+        metadata_only: bool = False,
     ) -> Optional[dict]:
         try:
-            messages = self._get_session_messages(session, provider)
-            tags = self._get_tagger().generate_tags(session, messages)
-            chunks = self.chunker.chunk_session(session, messages)
+            if metadata_only:
+                messages = []
+                tags = []
+                chunks = []
+            else:
+                messages = self._get_session_messages(session, provider)
+                tags = self._get_tagger().generate_tags(session, messages)
+                chunks = self.chunker.chunk_session(session, messages)
 
             file_mtime = self._get_session_mtime(provider, session.raw_path, session.id)
             indexed_at = int(time.time())
@@ -238,6 +248,13 @@ class SessionIndexer:
             timestamp = int(session.created_time.timestamp()) if session.created_time else indexed_at
             timestamp_end = int(session.modified_time.timestamp()) if session.modified_time else None
 
+            # Only set parent_id if parent exists in DB (FK constraint)
+            safe_parent_id = None
+            if session.parent_id:
+                existing = self.db.get_session(session.parent_id)
+                if existing:
+                    safe_parent_id = session.parent_id
+
             self.db.upsert_session(
                 session_id=session.id,
                 harness=session.harness,
@@ -246,7 +263,7 @@ class SessionIndexer:
                 project_name=session.project_name,
                 timestamp_end=timestamp_end,
                 is_child=session.is_child,
-                parent_id=session.parent_id,
+                parent_id=safe_parent_id,
                 child_type=session.child_type if session.is_child else None,
                 message_count=len(messages),
                 turn_count=turn_count,
@@ -257,60 +274,61 @@ class SessionIndexer:
                 auto_tags=tags,
             )
 
-            self.db.delete_messages_for_session(session.id)
-            self.db.delete_chunks_for_session(session.id)
+            if not metadata_only:
+                self.db.delete_messages_for_session(session.id)
+                self.db.delete_chunks_for_session(session.id)
 
-            message_rows = []
-            for i, msg in enumerate(messages):
-                msg_id = msg.get("id", f"{session.id}_msg_{i}")
-                content = msg.get("content", "")
-                if isinstance(content, list):
-                    content = " ".join(
-                        block.get("text", "") for block in content
-                        if isinstance(block, dict) and block.get("type") == "text"
+                message_rows = []
+                for i, msg in enumerate(messages):
+                    msg_id = msg.get("id", f"{session.id}_msg_{i}")
+                    content = msg.get("content", "")
+                    if isinstance(content, list):
+                        content = " ".join(
+                            block.get("text", "") for block in content
+                            if isinstance(block, dict) and block.get("type") == "text"
+                        )
+
+                    has_code = "```" in content or "def " in content or "function " in content
+
+                    tool_mentions = None
+                    if "agent-do" in content:
+                        tools = re.findall(r'agent-do\s+(\w+)', content)
+                        if tools:
+                            tool_mentions = json.dumps(list(set(tools)))
+
+                    message_rows.append(MessageRow(
+                        id=msg_id,
+                        session_id=session.id,
+                        role=msg.get("role", "unknown"),
+                        content=content,
+                        timestamp=msg.get("timestamp"),
+                        sequence=i,
+                        has_code=has_code,
+                        tool_mentions=tool_mentions,
+                    ))
+
+                self.db.upsert_messages(message_rows)
+
+                chunk_rows = [
+                    ChunkRow(
+                        id=None,
+                        session_id=chunk.session_id,
+                        message_id=chunk.message_id,
+                        chunk_index=chunk.chunk_index,
+                        chunk_type=chunk.chunk_type,
+                        content=chunk.content,
+                        metadata=chunk.metadata,
+                        embedding=None,
+                        embedding_model=None,
+                        created_at=None,
                     )
-
-                has_code = "```" in content or "def " in content or "function " in content
-
-                tool_mentions = None
-                if "agent-do" in content:
-                    tools = re.findall(r'agent-do\s+(\w+)', content)
-                    if tools:
-                        tool_mentions = json.dumps(list(set(tools)))
-
-                message_rows.append(MessageRow(
-                    id=msg_id,
-                    session_id=session.id,
-                    role=msg.get("role", "unknown"),
-                    content=content,
-                    timestamp=msg.get("timestamp"),
-                    sequence=i,
-                    has_code=has_code,
-                    tool_mentions=tool_mentions,
-                ))
-
-            self.db.upsert_messages(message_rows)
-
-            chunk_rows = [
-                ChunkRow(
-                    id=None,
-                    session_id=chunk.session_id,
-                    message_id=chunk.message_id,
-                    chunk_index=chunk.chunk_index,
-                    chunk_type=chunk.chunk_type,
-                    content=chunk.content,
-                    metadata=chunk.metadata,
-                    embedding=None,
-                    embedding_model=None,
-                    created_at=None,
-                )
-                for chunk in chunks
-            ]
-            self.db.upsert_chunks(chunk_rows)
+                    for chunk in chunks
+                ]
+                self.db.upsert_chunks(chunk_rows)
 
             return {
-                "messages": len(message_rows),
-                "chunks": len(chunk_rows),
+                "messages": len(messages),
+                "chunks": len(chunks),
             }
 
         except Exception as e:
@@ -463,8 +481,9 @@ class SessionIndexer:
                 int(s.created_time.timestamp()) if s.created_time else 0
                 for s in sessions
             ]
-            first_session_time = min(t for t in timestamps if t > 0) if timestamps else None
-            last_session_time = max(t for t in timestamps if t > 0) if timestamps else None
+            positive_timestamps = [t for t in timestamps if t > 0]
+            first_session_time = min(positive_timestamps) if positive_timestamps else None
+            last_session_time = max(positive_timestamps) if positive_timestamps else None
 
             project_name = sessions[0].project_name if sessions else None
 
