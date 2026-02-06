@@ -509,7 +509,7 @@ class AgentSessionsBrowser(App):
 
         if not os.environ.get("OPENAI_API_KEY"):
             self.call_from_thread(
-                self.notify, "OPENAI_API_KEY not set - summaries disabled", severity="warning"
+                self.notify, "OPENAI_API_KEY not set - summaries disabled", severity="warning", timeout=3
             )
             self._summary_generating = False
             return
@@ -560,7 +560,7 @@ class AgentSessionsBrowser(App):
                 first_error_shown = True
                 err = getattr(generate_summary_sync, '_last_error', 'unknown')
                 self.call_from_thread(
-                    self.notify, f"Summary failed: {err[:120]}", severity="error"
+                    self.notify, f"Summary failed: {err[:120]}", severity="error", timeout=3
                 )
 
         self._summary_generating = False
