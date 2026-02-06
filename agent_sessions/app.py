@@ -78,6 +78,7 @@ class AgentSessionsBrowser(App):
         Binding("slash", "activate_search", "/ Search"),
         Binding("f", "cycle_filter", "Filter"),
         Binding("i", "reindex", "Reindex"),
+        Binding("a", "show_all_messages", "All"),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("down", "cursor_down", "Down", show=False),
@@ -468,6 +469,29 @@ class AgentSessionsBrowser(App):
             SummaryCache().save()
 
         self._summary_generating = False
+
+    def action_show_all_messages(self):
+        """Load and display full session transcript."""
+        if self.selected_session:
+            self.notify("Loading full transcript...")
+            self._load_full_transcript(self.selected_session)
+
+    @work(thread=True)
+    def _load_full_transcript(self, session: Session):
+        """Load all messages for a session in a background thread."""
+        provider = get_provider(session.harness)
+        if not provider:
+            return
+        messages = provider.get_session_messages(session)
+        self.call_from_thread(self._show_full_transcript, session, messages)
+
+    def _show_full_transcript(self, session: Session, messages: list[dict]):
+        """Render the full transcript in the detail panel."""
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
+        detail.show_full_transcript(session, messages)
+        self.focus_pane = "detail"
+        detail.focus()
+        detail.scroll_home()
 
     def action_reindex(self):
         """Reindex sessions and refresh the list."""
