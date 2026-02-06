@@ -556,8 +556,9 @@ class AgentSessionsBrowser(App):
                 self.call_from_thread(self._refresh_session_item, session_id)
             elif not first_error_shown:
                 first_error_shown = True
+                err = getattr(generate_summary_sync, '_last_error', 'unknown')
                 self.call_from_thread(
-                    self.notify, "Summary generation failed - check OPENAI_API_KEY", severity="error"
+                    self.notify, f"Summary failed: {err[:120]}", severity="error"
                 )
 
         self._summary_generating = False

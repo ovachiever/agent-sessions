@@ -169,5 +169,7 @@ Summary:"""
         return summary[:80] if summary else None
 
     except Exception as e:
-        logging.getLogger(__name__).debug(f"Summary generation failed: {e}")
+        logging.getLogger(__name__).warning(f"Summary generation failed: {e}")
+        # Store last error for diagnostics
+        generate_summary_sync._last_error = str(e)
         return None
