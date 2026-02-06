@@ -1,16 +1,30 @@
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 dist/
 build/
 *.egg
-*.db
-*.sqlite
 .pytest_cache/
-.env
 .venv/
 venv/
+
+# Data
+*.db
+*.sqlite
+
+# Env / secrets
+.env
+
+# Editor
 *.swp
 *.swo
 *~
 .DS_Store
+
+# Internal (never push to public repo)
+PUSH.md
+AGENTS.md
+PUBLIC_RELEASE_CHECKLIST.md
+.sisyphus/
+.manna/
