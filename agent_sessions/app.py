@@ -524,25 +524,27 @@ class AgentSessionsBrowser(App):
             if not session or session.summary:
                 continue
 
-            # Get last_response: try session field, then DB messages, then provider
-            last_response = session.last_response
-            if not last_response:
-                last_response = self.db.get_last_assistant_response(session_id) or ""
-            if not last_response:
-                provider = get_provider(session.harness)
-                if provider:
-                    try:
-                        messages = provider.get_session_messages(session)
-                        for msg in reversed(messages):
-                            if msg.get("role") == "assistant" and msg.get("content"):
-                                last_response = msg["content"]
-                                break
-                    except Exception:
-                        pass
-            if not last_response:
+            # Get full transcript from provider
+            provider = get_provider(session.harness)
+            messages = []
+            if provider:
+                try:
+                    messages = provider.get_session_messages(session)
+                except Exception:
+                    pass
+            # Fallback: build minimal transcript from DB data
+            if not messages:
+                db_msgs = self.db.get_session_messages(session_id)
+                messages = [{"role": m.role, "content": m.content} for m in db_msgs if m.content]
+            # Last resort: use first_prompt + last_response fields
+            if not messages and session.first_prompt:
+                messages = [{"role": "user", "content": session.first_prompt}]
+                if session.last_response:
+                    messages.append({"role": "assistant", "content": session.last_response})
+            if not any(m.get("role") == "assistant" and m.get("content") for m in messages):
                 continue
 
-            summary = generate_summary_sync(session.first_prompt, last_response)
+            summary = generate_summary_sync(messages)
             if summary:
                 session.summary = summary
                 self.db.upsert_summary(

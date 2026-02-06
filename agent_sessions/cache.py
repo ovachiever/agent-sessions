@@ -132,8 +132,8 @@ def compute_content_hash(first_prompt: str, last_response: str) -> str:
     return hashlib.md5(content.encode()).hexdigest()[:12]
 
 
-def generate_summary_sync(first_prompt: str, last_response: str) -> Optional[str]:
-    """Generate a summary using GPT-5 nano (synchronous)."""
+def generate_summary_sync(messages: list[dict]) -> Optional[str]:
+    """Generate a summary from the full session transcript using GPT-5.2."""
     if not HAS_OPENAI:
         return None
 
@@ -145,43 +145,48 @@ def generate_summary_sync(first_prompt: str, last_response: str) -> Optional[str
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
 
-        context = f"""SESSION START (user request):
-{first_prompt[:1500]}
+        # Build transcript from messages, fitting within context limits
+        transcript_parts = []
+        char_budget = 80000  # ~20K tokens, plenty for GPT-5.2's 400K context
+        chars_used = 0
+        for msg in messages:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            if not content:
+                continue
+            label = "USER" if role == "user" else "ASSISTANT"
+            part = f"[{label}]: {content}"
+            if chars_used + len(part) > char_budget:
+                remaining = char_budget - chars_used
+                if remaining > 200:
+                    transcript_parts.append(part[:remaining] + "\n... (truncated)")
+                break
+            transcript_parts.append(part)
+            chars_used += len(part)
 
-SESSION END (final assistant response):
-{last_response[:1500]}"""
+        if not transcript_parts:
+            return None
+
+        transcript = "\n\n".join(transcript_parts)
 
         response = client.chat.completions.create(
             model=SUMMARY_MODEL,
             max_completion_tokens=2000,
-            messages=[
-                {
-                    "role": "system",
-                    "content": """You summarize AI coding sessions in 8-12 words.
+            messages=[{
+                "role": "user",
+                "content": f"""Write a 6-8 word title for this coding session. Be specific about WHAT was built or fixed. Past tense. No punctuation at end.
 
-Rules:
-- Describe the PURPOSE or OUTCOME, not the steps taken
-- Answer "what was accomplished" not "what actions were performed"
-- Use past tense verbs
-- Be specific: name the feature, bug, system, or domain
-- Never mention generic actions like "updated files", "ran commands", "fixed issues", "reconnected", "reviewed code"
-- Never mention the AI assistant, todos, or session mechanics
-- No quotes, no punctuation at end
+Examples of good titles:
+- Added dark mode toggle to settings page
+- Fixed auth token refresh race condition
+- Built CSV export for analytics dashboard
+- Debugged memory leak in worker pool
 
-Bad: "Updated todos and reconnected the browser" (generic steps)
-Bad: "Reviewed documentation and prepared settings" (vague)
-Good: "Built real-time WebSocket chat with typing indicators"
-Good: "Migrated auth from JWT to session cookies with CSRF protection"
-Good: "Diagnosed OOM crash caused by unbounded worker queue"
-"""
-                },
-                {
-                    "role": "user",
-                    "content": f"""{context}
+FULL SESSION TRANSCRIPT:
+{transcript}
 
-Summary:"""
-                }
-            ]
+Title:"""
+            }]
         )
 
         content = response.choices[0].message.content
@@ -192,7 +197,6 @@ Summary:"""
         return summary[:80] if summary else None
 
     except Exception as e:
-        import traceback
         err_detail = f"{type(e).__name__}: {e}"
         logging.getLogger(__name__).warning(f"Summary generation failed: {err_detail}")
         generate_summary_sync._last_error = err_detail
