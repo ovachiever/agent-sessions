@@ -145,17 +145,21 @@ def generate_summary_sync(messages: list[dict]) -> Optional[str]:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
 
-        # Build transcript from messages, fitting within context limits
+        # Filter to user/assistant only, skip tool calls, system, thinking
+        filtered = [
+            m for m in messages
+            if m.get("role") in ("user", "assistant") and m.get("content")
+        ]
+        if not filtered:
+            return None
+
+        # Build transcript fitting within context limits
         transcript_parts = []
-        char_budget = 80000  # ~20K tokens, plenty for GPT-5.2's 400K context
+        char_budget = 80000
         chars_used = 0
-        for msg in messages:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            if not content:
-                continue
-            label = "USER" if role == "user" else "ASSISTANT"
-            part = f"[{label}]: {content}"
+        for msg in filtered:
+            label = "USER" if msg["role"] == "user" else "ASSISTANT"
+            part = f"[{label}]: {msg['content']}"
             if chars_used + len(part) > char_budget:
                 remaining = char_budget - chars_used
                 if remaining > 200:
@@ -163,9 +167,6 @@ def generate_summary_sync(messages: list[dict]) -> Optional[str]:
                 break
             transcript_parts.append(part)
             chars_used += len(part)
-
-        if not transcript_parts:
-            return None
 
         transcript = "\n\n".join(transcript_parts)
 
