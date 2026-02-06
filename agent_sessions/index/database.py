@@ -508,7 +508,7 @@ class SessionDatabase:
 
     def get_all_sessions(self):
         """Get all sessions without filters."""
-        return self.get_sessions(limit=10000)
+        return self.get_sessions(limit=200000)
 
     def get_session_rows(self, *, limit: int = 100000) -> list[SessionRow]:
         """Get raw SessionRow objects (for indexer mtime checks)."""
