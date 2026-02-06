@@ -12,6 +12,7 @@ Initial public release.
 - Full transcript viewer (`t` key)
 - In-app incremental reindex (`i` key)
 - Resume sessions directly (`r` key) with auto-cd to project directory
-- AI-generated session summaries (optional, requires `anthropic` SDK)
+- AI-generated session summaries (optional, requires `openai` SDK)
+- Semantic search via OpenAI embeddings (optional, requires `openai` SDK)
 - Provider filtering (`f` key)
 - Smart search syntax with `harness:`, `project:`, `after:`, `before:` modifiers

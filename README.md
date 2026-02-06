@@ -91,36 +91,29 @@ Modifiers: `harness:`, `project:`, `after:` (e.g. `7d`, `1w`), `before:` (date o
 - **Full-text search** -- FTS5-indexed across all messages, with optional semantic search
 - **Full transcripts** -- read any session's complete conversation
 - **Session resume** -- jump back into any session with the right tool, in the right directory
-- **AI summaries** -- auto-generated one-line summaries (optional, requires Anthropic SDK)
+- **AI summaries** -- auto-generated one-line summaries via GPT-5 nano (optional)
 - **Incremental indexing** -- fast startup, only processes new/changed sessions
 
 ## Optional Dependencies
 
-The core tool has no heavy dependencies. AI features are opt-in:
+The core tool has no heavy dependencies. AI features are opt-in and require a single OpenAI API key:
 
 ```bash
-pip install agent-sessions[summaries]    # AI summaries via Claude Haiku
-pip install agent-sessions[embeddings]   # semantic search via OpenAI embeddings
-pip install agent-sessions[all]          # both
+pip install agent-sessions[ai]    # AI summaries + semantic search
 ```
 
-### AI Summaries
+### Setup
 
-When the `summaries` extra is installed, agent-sessions generates short one-line summaries for each session in the background using Claude Haiku. Summaries are cached in a local SQLite database so each session is only summarized once.
-
-You need an Anthropic API key set in your environment:
-
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
-
-### Semantic Search
-
-With the `embeddings` extra, search uses OpenAI embeddings alongside FTS5 for hybrid keyword + semantic matching.
+Set your OpenAI API key:
 
 ```bash
 export OPENAI_API_KEY="sk-..."
 ```
+
+With the `ai` extra installed and key set, you get:
+
+- **AI summaries** -- GPT-5 nano generates short one-line summaries for each session in the background. Summaries are cached in a local SQLite database so each session is only summarized once. You'll see lines flip from grey to white in real-time as they're generated.
+- **Semantic search** -- search uses OpenAI embeddings alongside FTS5 for hybrid keyword + semantic matching, so you can find sessions by meaning, not just exact words.
 
 ## Adding a Provider
 

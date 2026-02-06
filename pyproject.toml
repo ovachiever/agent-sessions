@@ -32,14 +32,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-summaries = [
-    "anthropic>=0.40.0",
-]
-embeddings = [
-    "openai>=1.0.0",
-]
-all = [
-    "anthropic>=0.40.0",
+ai = [
     "openai>=1.0.0",
 ]
 dev = [

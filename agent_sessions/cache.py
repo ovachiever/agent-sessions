@@ -2,21 +2,19 @@
 
 import hashlib
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Optional
 
-try:
-    import anthropic
-    HAS_ANTHROPIC = True
-except ImportError:
-    HAS_ANTHROPIC = False
+import importlib.util
 
+HAS_OPENAI = importlib.util.find_spec("openai") is not None
 
 # Default cache locations
 DEFAULT_CACHE_PATH = Path.home() / ".cache" / "agent-sessions" / "summaries.json"
 METADATA_CACHE_PATH = Path.home() / ".cache" / "agent-sessions" / "metadata.json"
-HAIKU_MODEL = "claude-haiku-4-5-20251001"
+SUMMARY_MODEL = "gpt-5-nano"
 
 
 class MetadataCache:
@@ -134,12 +132,17 @@ def compute_content_hash(first_prompt: str, last_response: str) -> str:
 
 
 def generate_summary_sync(first_prompt: str, last_response: str) -> Optional[str]:
-    """Generate a summary using Claude Haiku (synchronous)."""
-    if not HAS_ANTHROPIC:
+    """Generate a summary using GPT-5 nano (synchronous)."""
+    if not HAS_OPENAI:
+        return None
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
         return None
 
     try:
-        client = anthropic.Anthropic()
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
 
         context = f"""SESSION START (user request):
 {first_prompt[:1500]}
@@ -147,8 +150,8 @@ def generate_summary_sync(first_prompt: str, last_response: str) -> Optional[str
 SESSION END (final assistant response):
 {last_response[:1500]}"""
 
-        response = client.messages.create(
-            model=HAIKU_MODEL,
+        response = client.chat.completions.create(
+            model=SUMMARY_MODEL,
             max_tokens=60,
             messages=[{
                 "role": "user",
@@ -160,8 +163,7 @@ Summary:"""
             }]
         )
 
-        summary = response.content[0].text.strip()
-        # Clean up common artifacts
+        summary = response.choices[0].message.content.strip()
         summary = summary.strip('"\'').rstrip('.')
         return summary[:80] if summary else None
 

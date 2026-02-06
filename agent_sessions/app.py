@@ -15,7 +15,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, ListView, LoadingIndicator, Static
 
-from .cache import MetadataCache, generate_summary_sync, HAS_ANTHROPIC
+from .cache import MetadataCache, generate_summary_sync, HAS_OPENAI
 from .index import SessionDatabase, SessionIndexer, HybridSearch
 from .models import SearchResult, Session
 from .providers import get_available_providers, get_provider
@@ -302,7 +302,7 @@ class AgentSessionsBrowser(App):
                 self.db.upsert_summary(
                     session_id=session_id,
                     summary=summary_text,
-                    model="claude-haiku",
+                    model="gpt-5-nano",
                     content_hash=entry.get("hash", ""),
                     created_at=int(_time.time()),
                 )
@@ -482,7 +482,7 @@ class AgentSessionsBrowser(App):
 
     def _start_summary_generation(self):
         """Start background summary generation for sessions missing summaries."""
-        if not HAS_ANTHROPIC:
+        if not HAS_OPENAI:
             return
 
         sessions_needing_summary = [
@@ -539,7 +539,7 @@ class AgentSessionsBrowser(App):
                 self.db.upsert_summary(
                     session_id=session.id,
                     summary=summary,
-                    model="claude-haiku",
+                    model="gpt-5-nano",
                     content_hash=session.content_hash or "",
                     created_at=int(time.time()),
                 )
