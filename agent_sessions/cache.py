@@ -153,8 +153,7 @@ SESSION END (final assistant response):
 
         response = client.chat.completions.create(
             model=SUMMARY_MODEL,
-            max_completion_tokens=200,
-            reasoning_effort="none",
+            max_completion_tokens=2000,
             messages=[{
                 "role": "user",
                 "content": f"""Summarize this coding session in 6-10 words. Focus on WHAT WAS DONE, not what was asked. Use past tense verbs. No quotes or punctuation at end.
