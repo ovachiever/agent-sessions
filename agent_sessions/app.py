@@ -488,7 +488,7 @@ class AgentSessionsBrowser(App):
         sessions_needing_summary = [
             s for s in self.parent_sessions
             if not s.is_child and s.first_prompt and not s.summary
-        ][:50]
+        ]
 
         if not sessions_needing_summary:
             return
