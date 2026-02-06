@@ -335,7 +335,7 @@ class OpenCodeProvider(SessionProvider):
         return "\n".join(texts)
 
     def get_resume_command(self, session: Session) -> str:
-        return f"opencode --resume {session.id}"
+        return f"opencode --session {session.id}"
 
     def find_children(self, parent: Session, all_sessions: list[Session]) -> list[Session]:
         """Find child sessions that have this session as their parent."""
