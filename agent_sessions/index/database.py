@@ -507,8 +507,12 @@ class SessionDatabase:
         return [self._sessionrow_to_session(self._row_to_session(r)) for r in rows]
 
     def get_all_sessions(self):
-        """Get all sessions without filters."""
-        return self.get_sessions(limit=200000)
+        """Get all sessions without filters.
+        
+        Limit is high enough to capture all parent sessions even when
+        the DB has many child/sub-agent sessions that sort first by recency.
+        """
+        return self.get_sessions(limit=100000)
 
     def get_session_rows(self, *, limit: int = 100000) -> list[SessionRow]:
         """Get raw SessionRow objects (for indexer mtime checks)."""

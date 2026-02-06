@@ -233,10 +233,16 @@ class OpenCodeProvider(SessionProvider):
                 project_path = Path(session_meta["directory"])
                 project_name = project_path.name
         
-        # OpenCode doesn't have sub-agents. parentID is session continuation/branching,
-        # and system prompt prefixes ([search-mode], etc.) are user config, not automation.
-        is_child = False
-        child_type = ""
+        # Determine if this is a child session based on parentID from metadata
+        is_child = bool(parent_id)
+        child_type = _detect_child_type(first_prompt) if is_child else ""
+        
+        # Also detect automated/system sessions
+        if not is_child:
+            is_auto, auto_type = detect_automated_session(first_prompt)
+            if is_auto:
+                is_child = True
+                child_type = auto_type
 
         # Generate title - prefer metadata title, then first prompt
         title = session_title
