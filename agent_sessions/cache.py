@@ -164,12 +164,16 @@ Summary:"""
             }]
         )
 
-        summary = response.choices[0].message.content.strip()
-        summary = summary.strip('"\'').rstrip('.')
+        content = response.choices[0].message.content
+        if not content:
+            generate_summary_sync._last_error = f"Empty response from {SUMMARY_MODEL}"
+            return None
+        summary = content.strip().strip('"\'').rstrip('.')
         return summary[:80] if summary else None
 
     except Exception as e:
-        logging.getLogger(__name__).warning(f"Summary generation failed: {e}")
-        # Store last error for diagnostics
-        generate_summary_sync._last_error = str(e)
+        import traceback
+        err_detail = f"{type(e).__name__}: {e}"
+        logging.getLogger(__name__).warning(f"Summary generation failed: {err_detail}")
+        generate_summary_sync._last_error = err_detail
         return None
