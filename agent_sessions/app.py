@@ -77,6 +77,7 @@ class AgentSessionsBrowser(App):
         Binding("escape", "back_to_list", "Back"),
         Binding("slash", "activate_search", "/ Search"),
         Binding("f", "cycle_filter", "Filter"),
+        Binding("i", "reindex", "Reindex"),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("down", "cursor_down", "Down", show=False),
@@ -468,6 +469,10 @@ class AgentSessionsBrowser(App):
 
         self._summary_generating = False
 
+    def action_reindex(self):
+        """Reindex sessions and refresh the list."""
+        self._run_incremental_index()
+
     @work(exclusive=True, thread=True)
     def _run_incremental_index(self):
         """Background worker for incremental indexing."""
@@ -477,8 +482,13 @@ class AgentSessionsBrowser(App):
             if stats['sessions_updated'] > 0:
                 msg = f"Indexed {stats['sessions_updated']} sessions"
                 self.call_from_thread(self.notify, msg)
+            else:
+                self.call_from_thread(self.notify, "Already up to date")
+            self._load_sessions()
+            self.call_from_thread(self._on_sessions_loaded)
         except Exception as e:
             self.log.error(f"Indexing failed: {e}")
+            self.call_from_thread(self.notify, f"Indexing failed: {e}", severity="error")
 
     def _refresh_session_item(self, session_id: str):
         """Refresh a specific session item in the list."""
@@ -732,12 +742,13 @@ class AgentSessionsBrowser(App):
                     self.notify(f"Command: {cmd}", title="Copy Failed")
 
     def action_resume_session(self):
-        """Resume the selected session."""
+        """Resume the selected session, cd-ing to its project directory first."""
         if self.selected_session:
             provider = get_provider(self.selected_session.harness)
             if provider:
                 cmd = provider.get_resume_command(self.selected_session)
-                self.exit(result=cmd)
+                project_path = str(self.selected_session.project_path)
+                self.exit(result=(cmd, project_path))
 
     def _scroll_to_highlighted(self, lv: ListView):
         """Scroll ListView to ensure highlighted item is fully visible."""

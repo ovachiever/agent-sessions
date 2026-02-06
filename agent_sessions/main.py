@@ -22,9 +22,13 @@ def cmd_browse(args):
     )
     result = app.run()
 
-    if result and isinstance(result, str):
-        print(f"\n[Resuming session...]\n{result}\n")
-        parts = result.split()
+    if result and isinstance(result, tuple):
+        cmd, project_path = result
+        if project_path and os.path.isdir(project_path):
+            os.chdir(project_path)
+            print(f"\n[cd {project_path}]")
+        print(f"[Resuming session...]\n{cmd}\n")
+        parts = cmd.split()
         if parts:
             os.execvp(parts[0], parts)
 

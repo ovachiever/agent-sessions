@@ -1297,10 +1297,11 @@ class DroidSessionsBrowser(App):
                 self.notify(f"Command: {cmd}", title="Copy Failed")
     
     def action_resume_session(self):
-        """Resume the selected session."""
+        """Resume the selected session, cd-ing to its project directory first."""
         if self.selected_session:
             cmd = f"droid --resume {self.selected_session.session_id}"
-            self.exit(result=cmd)
+            project_path = self.selected_session.cwd or ""
+            self.exit(result=(cmd, project_path))
     
     def _scroll_to_highlighted(self, lv: ListView):
         """Scroll ListView to ensure highlighted item is fully visible."""
@@ -1388,9 +1389,13 @@ def main():
     app = DroidSessionsBrowser()
     result = app.run()
     
-    if result and result.startswith("droid --resume"):
-        print(f"\n[Resuming session...]\n{result}\n")
-        os.execvp("droid", result.split())
+    if result and isinstance(result, tuple):
+        cmd, project_path = result
+        if project_path and os.path.isdir(project_path):
+            os.chdir(project_path)
+            print(f"\n[cd {project_path}]")
+        print(f"[Resuming session...]\n{cmd}\n")
+        os.execvp("droid", cmd.split())
 
 
 if __name__ == "__main__":
