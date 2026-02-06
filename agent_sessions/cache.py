@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import threading
 from pathlib import Path
@@ -167,5 +168,6 @@ Summary:"""
         summary = summary.strip('"\'').rstrip('.')
         return summary[:80] if summary else None
 
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).debug(f"Summary generation failed: {e}")
         return None
