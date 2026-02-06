@@ -52,9 +52,9 @@ agent-sessions = "agent_sessions.main:main"
 ais = "agent_sessions.main:main"
 
 [project.urls]
-Homepage = "https://github.com/erikjamesfritsch/agent-sessions"
-Repository = "https://github.com/erikjamesfritsch/agent-sessions"
-Issues = "https://github.com/erikjamesfritsch/agent-sessions/issues"
+Homepage = "https://github.com/ovachiever/agent-sessions"
+Repository = "https://github.com/ovachiever/agent-sessions"
+Issues = "https://github.com/ovachiever/agent-sessions/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

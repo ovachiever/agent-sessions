@@ -1,174 +1,112 @@
-# agent-sessions
+<p align="center">
+  <h1 align="center">agent-sessions</h1>
+  <p align="center">
+    <strong>One TUI to browse, search, and resume every AI coding session you've ever had.</strong>
+  </p>
+  <p align="center">
+    <a href="https://github.com/ovachiever/agent-sessions/actions"><img src="https://github.com/ovachiever/agent-sessions/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://pypi.org/project/agent-sessions/"><img src="https://img.shields.io/pypi/v/agent-sessions" alt="PyPI"></a>
+    <a href="https://github.com/ovachiever/agent-sessions/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+    <img src="https://img.shields.io/pypi/pyversions/agent-sessions" alt="Python">
+  </p>
+</p>
 
-A universal TUI for browsing and resuming sessions from multiple AI coding assistants. One tool to find any conversation you've had with any AI agent.
+---
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│  agent-sessions                                                │
-│                                                                │
-│  "Where did I implement that auth flow?"                       │
-│  "What did Cursor suggest for the caching problem?"            │
-│  "Resume my Droid session on the API refactor"                 │
-│                                                                │
-│  → Search once, find everywhere                                │
-└────────────────────────────────────────────────────────────────┘
-```
+If you use more than one AI coding assistant, your conversations are scattered across different directories, formats, and tools. **agent-sessions** unifies them into a single, fast terminal interface. Search across all your sessions at once, view full transcripts, and resume any conversation instantly -- regardless of which tool started it.
 
-## Supported Harnesses
+<p align="center">
+  <img src="assets/screenshot.png" alt="agent-sessions TUI" width="900">
+</p>
 
-| Harness | Status | Icon | Notes |
-|---------|--------|------|-------|
-| FactoryAI Droid | ✅ Supported | 🤖 | JSONL sessions in `~/.factory/sessions/` |
-| Claude Code | ✅ Supported | 🧠 | JSONL sessions in `~/.claude/projects/` |
-| Cursor | ✅ Supported | ⌘ | SQLite composer sessions |
-| OpenCode | ✅ Supported | 💻 | JSON sessions in `~/.local/share/opencode/` |
-| Windsurf | 📋 Planned | 🌊 | VS Code-style storage (needs data) |
-| Aider | 📋 Planned | 🔧 | Project-local `.aider.chat.history.md` |
-| Amp | 📋 Planned | ⚡ | Sourcegraph's agent |
+## Supported Providers
 
-## Features
-
-- **Multi-provider support** - Browse sessions from Droid, Claude Code, and more
-- **Split-pane interface** - Parent sessions on top, sub-agents on bottom
-- **Provider filtering** - Press `f` to cycle through providers or show all
-- **Full-text search** - Press `/` to search across all sessions
-- **Smart search syntax** - `harness:droid project:api auth` filters while searching
-- **Session linking** - Automatically matches sub-agents to parent sessions
-- **AI summaries** - Auto-generates concise summaries via Claude Haiku
-- **Quick resume** - Copy command or launch session directly
+| Provider | Status | Sessions Location |
+|----------|--------|-------------------|
+| **Claude Code** | ✅ | `~/.claude/projects/` |
+| **FactoryAI Droid** | ✅ | `~/.factory/sessions/` |
+| **OpenCode** | ✅ | `~/.local/share/opencode/` |
+| **Cursor** | ✅ | `~/Library/Application Support/Cursor/` |
+| Windsurf | planned | |
+| Aider | planned | |
+| Amp | planned | |
 
 ## Installation
 
 ```bash
 pip install agent-sessions
 
-# or with pipx (recommended for CLI tools)
+# or with pipx (recommended)
 pipx install agent-sessions
 ```
 
-Or install from source:
+From source:
 
 ```bash
-git clone https://github.com/erikjamesfritsch/agent-sessions.git
+git clone https://github.com/ovachiever/agent-sessions.git
 cd agent-sessions
 pip install -e ".[dev]"
 ```
 
-## Usage
-
-### TUI Browser (default)
+## Quick Start
 
 ```bash
-# Launch the TUI
-agent-sessions
-ais                          # short alias
-
-# With filters
-ais --harness droid          # only Droid sessions
-ais --harness claude-code    # only Claude Code
-ais --project api-server     # only specific project
+agent-sessions    # launch the TUI
+ais               # short alias
 ```
 
-### CLI Commands
+On first launch, sessions are automatically discovered and indexed. Use `i` to reindex when you want to pick up new sessions without restarting.
 
-```bash
-# List providers
-ais providers                # list available providers
-ais providers --status       # detailed status with session counts
-
-# Search from CLI
-ais search "auth middleware"           # search all sessions
-ais search -H droid "auth"             # search specific harness
-ais search "project:api JWT"           # with inline filters
-
-# Cache management
-ais cache info               # show cache stats
-ais cache clear              # clear summary cache
-```
-
-### Keybindings
+## Keybindings
 
 | Key | Action |
 |-----|--------|
-| `j/k` or `↑/↓` | Navigate within focused pane |
-| `Tab` | Switch between parent and sub-agent panes |
-| `Shift+Tab` | Toggle to detail panel |
-| `f` | Cycle harness filter (All → Droid → Claude Code → All) |
-| `/` | Activate search |
-| `t` | Show full session transcript |
-| `i` | Reindex sessions (pick up new/changed sessions) |
+| `j/k` `↑/↓` | Navigate |
+| `Tab` | Switch between session list and sub-agent list |
+| `Shift+Tab` | Focus detail panel |
+| `/` | Search across all sessions |
+| `f` | Cycle provider filter |
+| `t` | View full session transcript |
+| `i` | Reindex (pick up new sessions) |
+| `r` | Resume session (opens in correct project directory) |
 | `Enter` | Copy resume command to clipboard |
-| `r` | Resume selected session (cd to project dir first) |
-| `Escape` | Cancel search / Back to list / Quit |
 | `q` | Quit |
 
-### Search Syntax
+## Search
 
-The search supports inline modifiers:
-
-```
-harness:droid          Filter by harness
-project:api-server     Filter by project name
-after:7d               Sessions in last 7 days
-before:2024-01-15      Sessions before date
-```
-
-Examples:
-```
-authentication                           # simple search
-harness:claude-code React component      # search Claude Code only
-project:api after:1w JWT                 # API project, last week
-```
-
-## Architecture
+Full-text search runs across every message in every session. Supports inline filters:
 
 ```
-agent_sessions/
-├── __init__.py
-├── main.py              # CLI entry point
-├── app.py               # TUI application
-├── models.py            # Session dataclass
-├── cache.py             # AI summary cache
-├── search.py            # Search engine
-├── providers/
-│   ├── __init__.py      # Provider registry
-│   ├── base.py          # SessionProvider ABC
-│   ├── droid.py         # FactoryAI Droid provider
-│   ├── claude_code.py   # Claude Code provider
-│   ├── cursor.py        # Cursor provider
-│   └── opencode.py      # OpenCode provider
-└── ui/
-    ├── __init__.py
-    ├── widgets.py       # TUI widgets
-    └── styles.py        # CSS styles
+auth middleware                          # search everywhere
+harness:claude-code React component      # limit to Claude Code
+project:api after:7d JWT                 # project + time filter
 ```
 
-## Session Locations
+Modifiers: `harness:`, `project:`, `after:` (e.g. `7d`, `1w`), `before:` (date or relative).
 
-| Provider | Location | Format |
-|----------|----------|--------|
-| FactoryAI Droid | `~/.factory/sessions/` | JSONL |
-| Claude Code | `~/.claude/projects/` | JSONL |
-| Cursor | `~/Library/Application Support/Cursor/` | SQLite |
-| OpenCode | `~/.local/share/opencode/storage/` | JSON |
+## Features
 
-## Requirements
+- **Multi-provider** -- browse Droid, Claude Code, Cursor, and OpenCode sessions in one place
+- **Split-pane UI** -- parent sessions on top, linked sub-agents below
+- **Full-text search** -- FTS5-indexed across all messages, with optional semantic search
+- **Full transcripts** -- read any session's complete conversation
+- **Session resume** -- jump back into any session with the right tool, in the right directory
+- **AI summaries** -- auto-generated one-line summaries (optional, requires Anthropic SDK)
+- **Incremental indexing** -- fast startup, only processes new/changed sessions
 
-- Python 3.10+
-- [Textual](https://textual.textualize.io/) >= 0.40.0
-- [Rich](https://rich.readthedocs.io/) >= 13.0.0
+## Optional Dependencies
 
-### Optional Dependencies
+The core tool has no heavy dependencies. AI features are opt-in:
 
 ```bash
-pip install agent-sessions[summaries]   # AI summaries (anthropic SDK)
-pip install agent-sessions[embeddings]  # Semantic search (openai SDK)
-pip install agent-sessions[all]         # Everything
+pip install agent-sessions[summaries]    # AI summaries via Claude Haiku
+pip install agent-sessions[embeddings]   # semantic search via OpenAI embeddings
+pip install agent-sessions[all]          # both
 ```
 
-## Adding a New Provider
+## Adding a Provider
 
-Implement the `SessionProvider` ABC:
+Providers are self-contained modules. Implement the `SessionProvider` ABC:
 
 ```python
 from agent_sessions.providers import register_provider
@@ -185,17 +123,23 @@ class MyProvider(SessionProvider):
         return Path.home() / ".my-tool" / "sessions"
 
     def discover_session_files(self):
-        # Return list of session file paths
         ...
 
     def parse_session(self, path):
-        # Parse file into Session object
         ...
 
     def get_resume_command(self, session):
         return f"my-tool --resume {session.id}"
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+
+## Requirements
+
+- Python 3.10+
+- [Textual](https://textual.textualize.io/) >= 0.40.0
+- [Rich](https://rich.readthedocs.io/) >= 13.0.0
+
 ## License
 
-MIT
+[MIT](LICENSE)

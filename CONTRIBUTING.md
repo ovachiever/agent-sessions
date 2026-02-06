@@ -3,7 +3,7 @@
 ## Setup
 
 ```bash
-git clone https://github.com/erikjamesfritsch/agent-sessions.git
+git clone https://github.com/ovachiever/agent-sessions.git
 cd agent-sessions
 pip install -e ".[dev]"
 ```
