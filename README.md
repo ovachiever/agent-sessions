@@ -41,6 +41,9 @@ A universal TUI for browsing and resuming sessions from multiple AI coding assis
 
 ```bash
 pip install agent-sessions
+
+# or with pipx (recommended for CLI tools)
+pipx install agent-sessions
 ```
 
 Or install from source:
@@ -48,7 +51,7 @@ Or install from source:
 ```bash
 git clone https://github.com/erikjamesfritsch/agent-sessions.git
 cd agent-sessions
-pip install -e .
+pip install -e ".[dev]"
 ```
 
 ## Usage
@@ -92,8 +95,10 @@ ais cache clear              # clear summary cache
 | `Shift+Tab` | Toggle to detail panel |
 | `f` | Cycle harness filter (All → Droid → Claude Code → All) |
 | `/` | Activate search |
+| `t` | Show full session transcript |
+| `i` | Reindex sessions (pick up new/changed sessions) |
 | `Enter` | Copy resume command to clipboard |
-| `r` | Resume selected session immediately |
+| `r` | Resume selected session (cd to project dir first) |
 | `Escape` | Cancel search / Back to list / Quit |
 | `q` | Quit |
 
@@ -152,7 +157,14 @@ agent_sessions/
 - Python 3.10+
 - [Textual](https://textual.textualize.io/) >= 0.40.0
 - [Rich](https://rich.readthedocs.io/) >= 13.0.0
-- [Anthropic SDK](https://github.com/anthropics/anthropic-sdk-python) >= 0.40.0 (optional, for AI summaries)
+
+### Optional Dependencies
+
+```bash
+pip install agent-sessions[summaries]   # AI summaries (anthropic SDK)
+pip install agent-sessions[embeddings]  # Semantic search (openai SDK)
+pip install agent-sessions[all]         # Everything
+```
 
 ## Adding a New Provider
 

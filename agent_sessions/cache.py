@@ -14,7 +14,7 @@ except ImportError:
 
 
 # Default cache locations
-DEFAULT_CACHE_PATH = Path.home() / ".factory" / "session-summaries.json"
+DEFAULT_CACHE_PATH = Path.home() / ".cache" / "agent-sessions" / "summaries.json"
 METADATA_CACHE_PATH = Path.home() / ".cache" / "agent-sessions" / "metadata.json"
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 

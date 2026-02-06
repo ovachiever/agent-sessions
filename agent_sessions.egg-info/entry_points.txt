@@ -1,4 +1,0 @@
-[console_scripts]
-agent-sessions = agent_sessions.main:main
-ais = agent_sessions.main:main
-droid-sessions = agent_sessions.main:main

@@ -29,10 +29,19 @@ keywords = ["tui", "terminal", "ai", "sessions", "claude", "cursor", "droid", "c
 dependencies = [
     "textual>=0.40.0",
     "rich>=13.0.0",
-    "anthropic>=0.40.0",
 ]
 
 [project.optional-dependencies]
+summaries = [
+    "anthropic>=0.40.0",
+]
+embeddings = [
+    "openai>=1.0.0",
+]
+all = [
+    "anthropic>=0.40.0",
+    "openai>=1.0.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
@@ -41,8 +50,6 @@ dev = [
 [project.scripts]
 agent-sessions = "agent_sessions.main:main"
 ais = "agent_sessions.main:main"
-# Keep old command for backwards compatibility
-droid-sessions = "agent_sessions.main:main"
 
 [project.urls]
 Homepage = "https://github.com/erikjamesfritsch/agent-sessions"
