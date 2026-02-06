@@ -501,9 +501,18 @@ class AgentSessionsBrowser(App):
     @work(thread=True)
     def _generate_summaries_background(self):
         """Background worker to generate summaries using providers for message data."""
+        import os
         import time
         self._summary_generating = True
         generated_count = 0
+        first_error_shown = False
+
+        if not os.environ.get("OPENAI_API_KEY"):
+            self.call_from_thread(
+                self.notify, "OPENAI_API_KEY not set - summaries disabled", severity="warning"
+            )
+            self._summary_generating = False
+            return
 
         while not self._summary_queue.empty():
             try:
@@ -545,6 +554,11 @@ class AgentSessionsBrowser(App):
                 )
                 generated_count += 1
                 self.call_from_thread(self._refresh_session_item, session_id)
+            elif not first_error_shown:
+                first_error_shown = True
+                self.call_from_thread(
+                    self.notify, "Summary generation failed - check OPENAI_API_KEY", severity="error"
+                )
 
         self._summary_generating = False
 
