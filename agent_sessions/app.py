@@ -1,9 +1,12 @@
 """Agent Sessions Browser TUI Application."""
 
+import logging
 import os
 import subprocess
 from queue import Queue
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from rich.text import Text
 from textual import on, work
@@ -12,7 +15,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, ListView, LoadingIndicator, Static
 
-from .cache import MetadataCache, SummaryCache, generate_summary_sync, HAS_ANTHROPIC
+from .cache import MetadataCache, generate_summary_sync, HAS_ANTHROPIC
 from .index import SessionDatabase, SessionIndexer, HybridSearch
 from .models import SearchResult, Session
 from .providers import get_available_providers, get_provider
@@ -241,16 +244,11 @@ class AgentSessionsBrowser(App):
 
     def _load_sessions(self):
         """Load sessions from database."""
-        # Load from database (includes summaries from DB summaries table)
+        # Load from database (includes summaries from DB summaries table via JOIN)
         self.all_sessions = self.db.get_all_sessions()
 
-        # Backfill summaries from JSON cache for sessions not yet in DB summaries table
-        json_cache = SummaryCache()
-        for session in self.all_sessions:
-            if not session.summary:
-                cached = json_cache.get(session.id, session.content_hash or "")
-                if cached:
-                    session.summary = cached
+        # Migrate summaries from old JSON cache into DB for sessions missing them
+        self._migrate_json_summaries()
 
         # Apply project filter
         if self.project_filter:
@@ -261,6 +259,57 @@ class AgentSessionsBrowser(App):
 
         # Apply harness filter and separate parents/children
         self._apply_harness_filter()
+
+    def _migrate_json_summaries(self):
+        """Migrate summaries from old JSON cache files into the DB summaries table.
+
+        Checks both old (~/.factory/session-summaries.json) and new
+        (~/.cache/agent-sessions/summaries.json) cache paths.
+        """
+        import json
+        import time as _time
+        from pathlib import Path
+
+        session_ids = {s.id for s in self.all_sessions}
+        sessions_by_id = {s.id: s for s in self.all_sessions}
+        migrated = 0
+
+        cache_paths = [
+            Path.home() / ".factory" / "session-summaries.json",
+            Path.home() / ".cache" / "agent-sessions" / "summaries.json",
+        ]
+
+        for cache_path in cache_paths:
+            if not cache_path.exists():
+                continue
+            try:
+                with open(cache_path) as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                continue
+
+            for session_id, entry in data.items():
+                if session_id not in session_ids:
+                    continue
+                session = sessions_by_id[session_id]
+                if session.summary:
+                    continue
+                summary_text = entry.get("summary")
+                if not summary_text:
+                    continue
+
+                session.summary = summary_text
+                self.db.upsert_summary(
+                    session_id=session_id,
+                    summary=summary_text,
+                    model="claude-haiku",
+                    content_hash=entry.get("hash", ""),
+                    created_at=int(_time.time()),
+                )
+                migrated += 1
+
+        if migrated > 0:
+            logger.info(f"Migrated {migrated} summaries from JSON cache to DB")
 
     def _apply_harness_filter(self):
         """Apply current harness filter to sessions."""
@@ -451,7 +500,7 @@ class AgentSessionsBrowser(App):
 
     @work(thread=True)
     def _generate_summaries_background(self):
-        """Background worker to generate summaries."""
+        """Background worker to generate summaries using providers for message data."""
         import time
         self._summary_generating = True
         generated_count = 0
@@ -466,29 +515,36 @@ class AgentSessionsBrowser(App):
             if not session or session.summary:
                 continue
 
+            # Get last_response: try session field, then DB messages, then provider
             last_response = session.last_response
             if not last_response:
                 last_response = self.db.get_last_assistant_response(session_id) or ""
+            if not last_response:
+                provider = get_provider(session.harness)
+                if provider:
+                    try:
+                        messages = provider.get_session_messages(session)
+                        for msg in reversed(messages):
+                            if msg.get("role") == "assistant" and msg.get("content"):
+                                last_response = msg["content"]
+                                break
+                    except Exception:
+                        pass
             if not last_response:
                 continue
 
             summary = generate_summary_sync(session.first_prompt, last_response)
             if summary:
                 session.summary = summary
-                cache = SummaryCache()
-                cache.set(session.id, session.content_hash, summary)
                 self.db.upsert_summary(
                     session_id=session.id,
                     summary=summary,
                     model="claude-haiku",
-                    content_hash=session.content_hash,
+                    content_hash=session.content_hash or "",
                     created_at=int(time.time()),
                 )
                 generated_count += 1
                 self.call_from_thread(self._refresh_session_item, session_id)
-
-        if generated_count > 0:
-            SummaryCache().save()
 
         self._summary_generating = False
 
@@ -525,8 +581,8 @@ class AgentSessionsBrowser(App):
         try:
             self.call_from_thread(self.notify, "Indexing sessions...")
             stats = self.indexer.incremental_update()
-            if stats['sessions_updated'] > 0:
-                msg = f"Indexed {stats['sessions_updated']} sessions"
+            if stats['sessions_indexed'] > 0:
+                msg = f"Indexed {stats['sessions_indexed']} sessions"
                 self.call_from_thread(self.notify, msg)
             else:
                 self.call_from_thread(self.notify, "Already up to date")
