@@ -480,13 +480,13 @@ class SessionDatabase:
         params: list = []
 
         if harness:
-            conditions.append("harness = ?")
+            conditions.append("s.harness = ?")
             params.append(harness)
         if project_path:
-            conditions.append("project_path = ?")
+            conditions.append("s.project_path = ?")
             params.append(project_path)
         if is_child is not None:
-            conditions.append("is_child = ?")
+            conditions.append("s.is_child = ?")
             params.append(1 if is_child else 0)
 
         where_clause = ""
@@ -496,15 +496,17 @@ class SessionDatabase:
         params.extend([limit, offset])
         rows = conn.execute(
             f"""
-            SELECT * FROM sessions
+            SELECT s.*, sm.summary as _summary
+            FROM sessions s
+            LEFT JOIN summaries sm ON s.id = sm.session_id
             {where_clause}
-            ORDER BY timestamp DESC
+            ORDER BY s.timestamp DESC
             LIMIT ? OFFSET ?
             """,
             params,
         ).fetchall()
 
-        return [self._sessionrow_to_session(self._row_to_session(r)) for r in rows]
+        return [self._sessionrow_to_session(self._row_to_session(r), summary=r["_summary"]) for r in rows]
 
     def get_all_sessions(self):
         """Get all sessions without filters.
@@ -563,6 +565,21 @@ class SessionDatabase:
             (session_id,),
         ).fetchall()
         return [self._row_to_message(r) for r in rows]
+
+    def get_last_assistant_response(self, session_id: str) -> Optional[str]:
+        """Get the last assistant message content for a session."""
+        self._ensure_schema()
+        conn = self._get_connection()
+        row = conn.execute(
+            """
+            SELECT content FROM messages
+            WHERE session_id = ? AND role = 'assistant'
+            ORDER BY sequence DESC
+            LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+        return row["content"] if row else None
 
     def get_session_chunks(self, session_id: str) -> list[ChunkRow]:
         self._ensure_schema()
@@ -741,7 +758,7 @@ class SessionDatabase:
             auto_tags=row["auto_tags"],
         )
 
-    def _sessionrow_to_session(self, row: SessionRow):
+    def _sessionrow_to_session(self, row: SessionRow, summary: Optional[str] = None):
         """Convert SessionRow namedtuple to Session dataclass."""
         from ..models import Session
         
@@ -763,7 +780,7 @@ class SessionDatabase:
             model="",
             tool_calls=[],
             tokens_used=None,
-            summary=None,
+            summary=summary,
             content_hash="",
             extra={},
         )

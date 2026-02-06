@@ -241,8 +241,16 @@ class AgentSessionsBrowser(App):
 
     def _load_sessions(self):
         """Load sessions from database."""
-        # Load from database
+        # Load from database (includes summaries from DB summaries table)
         self.all_sessions = self.db.get_all_sessions()
+
+        # Backfill summaries from JSON cache for sessions not yet in DB summaries table
+        json_cache = SummaryCache()
+        for session in self.all_sessions:
+            if not session.summary:
+                cached = json_cache.get(session.id, session.content_hash or "")
+                if cached:
+                    session.summary = cached
 
         # Apply project filter
         if self.project_filter:
@@ -430,7 +438,7 @@ class AgentSessionsBrowser(App):
 
         sessions_needing_summary = [
             s for s in self.parent_sessions
-            if not s.is_child and s.first_prompt and s.last_response and not s.summary
+            if not s.is_child and s.first_prompt and not s.summary
         ][:50]
 
         if not sessions_needing_summary:
@@ -444,6 +452,7 @@ class AgentSessionsBrowser(App):
     @work(thread=True)
     def _generate_summaries_background(self):
         """Background worker to generate summaries."""
+        import time
         self._summary_generating = True
         generated_count = 0
 
@@ -457,11 +466,24 @@ class AgentSessionsBrowser(App):
             if not session or session.summary:
                 continue
 
-            summary = generate_summary_sync(session.first_prompt, session.last_response)
+            last_response = session.last_response
+            if not last_response:
+                last_response = self.db.get_last_assistant_response(session_id) or ""
+            if not last_response:
+                continue
+
+            summary = generate_summary_sync(session.first_prompt, last_response)
             if summary:
                 session.summary = summary
                 cache = SummaryCache()
                 cache.set(session.id, session.content_hash, summary)
+                self.db.upsert_summary(
+                    session_id=session.id,
+                    summary=summary,
+                    model="claude-haiku",
+                    content_hash=session.content_hash,
+                    created_at=int(time.time()),
+                )
                 generated_count += 1
                 self.call_from_thread(self._refresh_session_item, session_id)
 
