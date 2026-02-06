@@ -104,6 +104,24 @@ pip install agent-sessions[embeddings]   # semantic search via OpenAI embeddings
 pip install agent-sessions[all]          # both
 ```
 
+### AI Summaries
+
+When the `summaries` extra is installed, agent-sessions generates short one-line summaries for each session in the background using Claude Haiku. Summaries are cached in a local SQLite database so each session is only summarized once.
+
+You need an Anthropic API key set in your environment:
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+### Semantic Search
+
+With the `embeddings` extra, search uses OpenAI embeddings alongside FTS5 for hybrid keyword + semantic matching.
+
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
 ## Adding a Provider
 
 Providers are self-contained modules. Implement the `SessionProvider` ABC:
