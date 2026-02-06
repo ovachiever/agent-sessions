@@ -154,14 +154,34 @@ SESSION END (final assistant response):
         response = client.chat.completions.create(
             model=SUMMARY_MODEL,
             max_completion_tokens=2000,
-            messages=[{
-                "role": "user",
-                "content": f"""Summarize this coding session in 6-10 words. Focus on WHAT WAS DONE, not what was asked. Use past tense verbs. No quotes or punctuation at end.
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You summarize AI coding sessions in 8-12 words.
 
-{context}
+Rules:
+- Describe the PURPOSE or OUTCOME, not the steps taken
+- Answer "what was accomplished" not "what actions were performed"
+- Use past tense verbs
+- Be specific: name the feature, bug, system, or domain
+- Never mention generic actions like "updated files", "ran commands", "fixed issues", "reconnected", "reviewed code"
+- Never mention the AI assistant, todos, or session mechanics
+- No quotes, no punctuation at end
+
+Bad: "Updated todos and reconnected the browser" (generic steps)
+Bad: "Reviewed documentation and prepared settings" (vague)
+Good: "Built real-time WebSocket chat with typing indicators"
+Good: "Migrated auth from JWT to session cookies with CSRF protection"
+Good: "Diagnosed OOM crash caused by unbounded worker queue"
+"""
+                },
+                {
+                    "role": "user",
+                    "content": f"""{context}
 
 Summary:"""
-            }]
+                }
+            ]
         )
 
         content = response.choices[0].message.content
