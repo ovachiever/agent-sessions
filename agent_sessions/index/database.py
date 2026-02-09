@@ -811,13 +811,42 @@ class SessionDatabase:
             created_at=row["created_at"],
         )
 
+    @staticmethod
+    def _build_fts_query(query: str) -> str:
+        """Build an FTS5 query from a natural-language string.
+
+        Tokenizes into alphanumeric words, wraps each in quotes (to handle
+        any FTS5 special chars), and joins with OR so that matching *any*
+        term returns results.  Common stop-words are stripped to improve
+        ranking quality.
+        """
+        import re as _re
+
+        _STOP_WORDS = {
+            "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+            "has", "have", "he", "i", "in", "is", "it", "its", "me", "my",
+            "of", "on", "or", "she", "that", "the", "they", "this", "to",
+            "us", "was", "we", "what", "which", "who", "will", "with", "you",
+            "do", "does", "did", "find", "how", "can", "use",
+        }
+
+        tokens = _re.findall(r"[a-zA-Z0-9]+", query.lower())
+        terms = [t for t in tokens if t not in _STOP_WORDS]
+        if not terms:
+            # Fall back to all tokens if everything was a stop-word
+            terms = tokens
+        if not terms:
+            return '""'
+
+        return " OR ".join(f'"{t}"' for t in terms)
+
     def search_messages_fts(
         self, query: str, limit: int = 100
     ) -> list[tuple[str, float]]:
         """Search messages via FTS5. Returns (session_id, bm25_score) - lower scores = more relevant."""
         self._ensure_schema()
         conn = self._get_connection()
-        safe_query = query.replace('"', '""')
+        fts_query = self._build_fts_query(query)
         rows = conn.execute(
             """
             SELECT m.session_id, bm25(messages_fts) as score
@@ -828,7 +857,7 @@ class SessionDatabase:
             ORDER BY score
             LIMIT ?
             """,
-            (f'"{safe_query}"', limit),
+            (fts_query, limit),
         ).fetchall()
         return [(row["session_id"], row["score"]) for row in rows]
 
@@ -838,7 +867,7 @@ class SessionDatabase:
         """Search session metadata via FTS5. Returns (session_id, bm25_score) - lower scores = more relevant."""
         self._ensure_schema()
         conn = self._get_connection()
-        safe_query = query.replace('"', '""')
+        fts_query = self._build_fts_query(query)
         rows = conn.execute(
             """
             SELECT s.id, bm25(sessions_fts) as score
@@ -848,7 +877,7 @@ class SessionDatabase:
             ORDER BY score
             LIMIT ?
             """,
-            (f'"{safe_query}"', limit),
+            (fts_query, limit),
         ).fetchall()
         return [(row["id"], row["score"]) for row in rows]
 

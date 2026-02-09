@@ -12,6 +12,7 @@ from ..models import Session
 from ..providers.base import SessionProvider
 from .chunker import SessionChunker
 from .database import ChunkRow, MessageRow, SessionDatabase
+from .embeddings import EmbeddingGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ class SessionIndexer:
         self.providers = providers
         self.tagger = None
         self.chunker = SessionChunker()
+        self.embedder = EmbeddingGenerator()
 
     def _get_tagger(self):
         if self.tagger is None:
@@ -309,6 +311,10 @@ class SessionIndexer:
 
                 self.db.upsert_messages(message_rows)
 
+                # Generate embeddings if available
+                if self.embedder.available:
+                    chunks = self.embedder.embed_chunks(chunks)
+
                 chunk_rows = [
                     ChunkRow(
                         id=None,
@@ -318,8 +324,8 @@ class SessionIndexer:
                         chunk_type=chunk.chunk_type,
                         content=chunk.content,
                         metadata=chunk.metadata,
-                        embedding=None,
-                        embedding_model=None,
+                        embedding=chunk.embedding,
+                        embedding_model="text-embedding-3-small" if chunk.embedding else None,
                         created_at=None,
                     )
                     for chunk in chunks
