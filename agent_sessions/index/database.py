@@ -108,11 +108,17 @@ class SessionDatabase:
         self._initialized = True
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection):
-        """Add last_response_preview column to sessions table."""
+        """Add last_response_preview column and rebuild FTS indexes."""
         try:
             conn.execute("ALTER TABLE sessions ADD COLUMN last_response_preview TEXT")
         except sqlite3.OperationalError:
             pass  # Column already exists
+        # Rebuild FTS indexes to fix any content-sync issues
+        for fts_table in ("messages_fts", "sessions_fts"):
+            try:
+                conn.execute(f"INSERT INTO {fts_table}({fts_table}) VALUES('rebuild')")
+            except sqlite3.OperationalError:
+                pass
 
     def _get_schema_version(self, conn: sqlite3.Connection) -> int:
         try:
@@ -863,6 +869,14 @@ class SessionDatabase:
 
         return " OR ".join(f'"{t}"' for t in terms)
 
+    def _rebuild_fts(self, table: str) -> None:
+        """Rebuild an FTS5 index to fix content-sync issues."""
+        try:
+            conn = self._get_connection()
+            conn.execute(f"INSERT INTO {table}({table}) VALUES('rebuild')")
+        except sqlite3.OperationalError:
+            pass
+
     def search_messages_fts(
         self, query: str, limit: int = 100
     ) -> list[tuple[str, float]]:
@@ -870,8 +884,7 @@ class SessionDatabase:
         self._ensure_schema()
         conn = self._get_connection()
         fts_query = self._build_fts_query(query)
-        rows = conn.execute(
-            """
+        sql = """
             SELECT m.session_id, bm25(messages_fts) as score
             FROM messages_fts
             JOIN messages m ON messages_fts.rowid = m.rowid
@@ -879,9 +892,12 @@ class SessionDatabase:
             GROUP BY m.session_id
             ORDER BY score
             LIMIT ?
-            """,
-            (fts_query, limit),
-        ).fetchall()
+        """
+        try:
+            rows = conn.execute(sql, (fts_query, limit)).fetchall()
+        except sqlite3.OperationalError:
+            self._rebuild_fts("messages_fts")
+            rows = conn.execute(sql, (fts_query, limit)).fetchall()
         return [(row["session_id"], row["score"]) for row in rows]
 
     def search_sessions_fts(
@@ -891,17 +907,19 @@ class SessionDatabase:
         self._ensure_schema()
         conn = self._get_connection()
         fts_query = self._build_fts_query(query)
-        rows = conn.execute(
-            """
+        sql = """
             SELECT s.id, bm25(sessions_fts) as score
             FROM sessions_fts
             JOIN sessions s ON sessions_fts.rowid = s.rowid
             WHERE sessions_fts MATCH ?
             ORDER BY score
             LIMIT ?
-            """,
-            (fts_query, limit),
-        ).fetchall()
+        """
+        try:
+            rows = conn.execute(sql, (fts_query, limit)).fetchall()
+        except sqlite3.OperationalError:
+            self._rebuild_fts("sessions_fts")
+            rows = conn.execute(sql, (fts_query, limit)).fetchall()
         return [(row["id"], row["score"]) for row in rows]
 
     def get_all_chunk_embeddings(self) -> list[tuple[str, int, bytes]]:
