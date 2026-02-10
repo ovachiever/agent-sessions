@@ -234,7 +234,7 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         text.append("\n")
 
         # Original prompt
-        text.append("┌─ Original Prompt ─────────────────────\n", style="bold green")
+        text.append("┌─ First Prompt ────────────────────────\n", style="bold green")
         if session.first_prompt:
             prompt_text = session.first_prompt[:2000]
             for pl in prompt_text.split("\n"):

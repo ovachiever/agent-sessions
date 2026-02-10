@@ -247,6 +247,12 @@ class SessionIndexer:
                 if len(session.first_prompt) > 200:
                     first_prompt_preview += "..."
 
+            last_response_preview = None
+            if session.last_response:
+                last_response_preview = session.last_response[:500]
+                if len(session.last_response) > 500:
+                    last_response_preview += "..."
+
             timestamp = int(session.created_time.timestamp()) if session.created_time else indexed_at
             timestamp_end = int(session.modified_time.timestamp()) if session.modified_time else None
 
@@ -270,6 +276,7 @@ class SessionIndexer:
                 message_count=len(messages),
                 turn_count=turn_count,
                 first_prompt_preview=first_prompt_preview,
+                last_response_preview=last_response_preview,
                 file_path=str(session.raw_path) if session.raw_path else None,
                 file_mtime=file_mtime,
                 indexed_at=indexed_at,

@@ -9,7 +9,7 @@ from typing import Optional
 from ..cache import MetadataCache, SummaryCache, compute_content_hash
 from ..models import Session
 from . import register_provider
-from .base import SessionProvider, detect_automated_session
+from .base import SessionProvider, detect_automated_session, find_first_real_prompt, find_last_real_response
 
 
 SESSIONS_DIR = Path.home() / ".factory" / "sessions"
@@ -195,10 +195,10 @@ class DroidProvider(SessionProvider):
             assistant_messages = [(r, c) for r, c in messages if r == "assistant"]
 
             if user_messages:
-                first_user_prompt = user_messages[0][1]
+                first_user_prompt = find_first_real_prompt(user_messages)
                 last_user_prompt = user_messages[-1][1]
             if assistant_messages:
-                last_assistant_response = assistant_messages[-1][1]
+                last_assistant_response = find_last_real_response(assistant_messages)
 
         except (IOError, Exception):
             return None

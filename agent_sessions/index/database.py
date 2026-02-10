@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_DB_PATH = Path.home() / ".cache" / "agent-sessions" / "sessions.db"
 
 
@@ -28,6 +28,7 @@ class SessionRow:
     file_mtime: Optional[int]
     indexed_at: Optional[int]
     auto_tags: Optional[str]
+    last_response_preview: Optional[str] = None
 
 
 @dataclass
@@ -97,10 +98,21 @@ class SessionDatabase:
             return
         conn = self._get_connection()
         current_version = self._get_schema_version(conn)
-        if current_version < SCHEMA_VERSION:
+        if current_version < 1:
             self._create_schema(conn)
             self._set_schema_version(conn, SCHEMA_VERSION)
+        else:
+            if current_version < 2:
+                self._migrate_v1_to_v2(conn)
+                self._set_schema_version(conn, 2)
         self._initialized = True
+
+    def _migrate_v1_to_v2(self, conn: sqlite3.Connection):
+        """Add last_response_preview column to sessions table."""
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN last_response_preview TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     def _get_schema_version(self, conn: sqlite3.Connection) -> int:
         try:
@@ -148,6 +160,7 @@ class SessionDatabase:
                 message_count INTEGER DEFAULT 0,
                 turn_count INTEGER DEFAULT 0,
                 first_prompt_preview TEXT,
+                last_response_preview TEXT,
                 file_path TEXT,
                 file_mtime INTEGER,
                 indexed_at INTEGER,
@@ -306,6 +319,7 @@ class SessionDatabase:
         message_count: int = 0,
         turn_count: int = 0,
         first_prompt_preview: Optional[str] = None,
+        last_response_preview: Optional[str] = None,
         file_path: Optional[str] = None,
         file_mtime: Optional[int] = None,
         indexed_at: Optional[int] = None,
@@ -319,8 +333,9 @@ class SessionDatabase:
             INSERT INTO sessions (
                 id, harness, project_path, project_name, timestamp, timestamp_end,
                 is_child, parent_id, child_type, message_count, turn_count,
-                first_prompt_preview, file_path, file_mtime, indexed_at, auto_tags
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                first_prompt_preview, last_response_preview,
+                file_path, file_mtime, indexed_at, auto_tags
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 harness = excluded.harness,
                 project_path = excluded.project_path,
@@ -333,6 +348,7 @@ class SessionDatabase:
                 message_count = excluded.message_count,
                 turn_count = excluded.turn_count,
                 first_prompt_preview = excluded.first_prompt_preview,
+                last_response_preview = excluded.last_response_preview,
                 file_path = excluded.file_path,
                 file_mtime = excluded.file_mtime,
                 indexed_at = excluded.indexed_at,
@@ -351,6 +367,7 @@ class SessionDatabase:
                 message_count,
                 turn_count,
                 first_prompt_preview,
+                last_response_preview,
                 file_path,
                 file_mtime,
                 indexed_at,
@@ -739,6 +756,11 @@ class SessionDatabase:
         return row["c"] if row else 0
 
     def _row_to_session(self, row: sqlite3.Row) -> SessionRow:
+        # Handle both v1 (no last_response_preview) and v2 schemas
+        try:
+            last_response_preview = row["last_response_preview"]
+        except (IndexError, KeyError):
+            last_response_preview = None
         return SessionRow(
             id=row["id"],
             harness=row["harness"],
@@ -756,12 +778,13 @@ class SessionDatabase:
             file_mtime=row["file_mtime"],
             indexed_at=row["indexed_at"],
             auto_tags=row["auto_tags"],
+            last_response_preview=last_response_preview,
         )
 
     def _sessionrow_to_session(self, row: SessionRow, summary: Optional[str] = None):
         """Convert SessionRow namedtuple to Session dataclass."""
         from ..models import Session
-        
+
         return Session(
             id=row.id,
             harness=row.harness,
@@ -771,7 +794,7 @@ class SessionDatabase:
             title="",
             first_prompt=row.first_prompt_preview or "",
             last_prompt="",
-            last_response="",
+            last_response=row.last_response_preview or "",
             created_time=datetime.fromtimestamp(row.timestamp) if row.timestamp else None,
             modified_time=datetime.fromtimestamp(row.timestamp_end) if row.timestamp_end else None,
             is_child=row.is_child,

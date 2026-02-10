@@ -6,6 +6,64 @@ from pathlib import Path
 from ..models import Session
 
 
+# Patterns that indicate system/meta content rather than real user/assistant messages
+_SKIP_PREFIXES = (
+    "[Request interrupted",
+    "<local-command-caveat>",
+    "<command-name>",
+    "<command-message>",
+    "<command-instruction>",
+    "<system-reminder>",
+    "<system-notification>",
+    "[COMPACTION CONTEXT",
+    "<ultrawork-mode>",
+)
+
+
+def find_first_real_prompt(user_messages: list[tuple[str, str]]) -> str:
+    """Find the first real user prompt, skipping system/meta messages.
+
+    Args:
+        user_messages: List of (role, content) tuples for user messages.
+
+    Returns:
+        The content of the first real prompt, or the first message as fallback.
+    """
+    if not user_messages:
+        return ""
+    for _, content in user_messages:
+        stripped = content.strip()
+        if any(stripped.startswith(p) for p in _SKIP_PREFIXES):
+            continue
+        if len(stripped) < 20:
+            continue
+        return content
+    # Fallback to first message if nothing passes
+    return user_messages[0][1]
+
+
+def find_last_real_response(assistant_messages: list[tuple[str, str]]) -> str:
+    """Find the last real assistant response, skipping system/meta messages.
+
+    Args:
+        assistant_messages: List of (role, content) tuples for assistant messages.
+
+    Returns:
+        The content of the last real response, or the last message as fallback.
+    """
+    if not assistant_messages:
+        return ""
+    for _, content in reversed(assistant_messages):
+        stripped = content.strip()
+        if not stripped:
+            continue
+        if any(stripped.startswith(p) for p in _SKIP_PREFIXES):
+            continue
+        return content
+    # Fallback to last message if nothing passes
+    return assistant_messages[-1][1]
+
+
 def detect_automated_session(first_prompt: str) -> tuple[bool, str]:
     """Detect if a session is system-generated/automated rather than human-initiated.
     

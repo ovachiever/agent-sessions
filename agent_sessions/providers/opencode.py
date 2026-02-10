@@ -8,7 +8,7 @@ from typing import Optional
 from ..cache import MetadataCache, SummaryCache, compute_content_hash
 from ..models import Session
 from . import register_provider
-from .base import SessionProvider, detect_automated_session
+from .base import SessionProvider, detect_automated_session, find_first_real_prompt, find_last_real_response
 
 
 # OpenCode stores data in XDG-style directories
@@ -216,9 +216,9 @@ class OpenCodeProvider(SessionProvider):
         user_messages = [(r, c) for r, c in messages if r == "user"]
         assistant_messages = [(r, c) for r, c in messages if r == "assistant"]
 
-        first_prompt = user_messages[0][1] if user_messages else ""
+        first_prompt = find_first_real_prompt(user_messages) if user_messages else ""
         last_prompt = user_messages[-1][1] if user_messages else ""
-        last_response = assistant_messages[-1][1] if assistant_messages else ""
+        last_response = find_last_real_response(assistant_messages) if assistant_messages else ""
 
         # Load session metadata for parent-child relationship and title
         session_meta = _get_session_metadata(session_id)
