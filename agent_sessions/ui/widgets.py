@@ -4,8 +4,7 @@ from typing import Optional
 
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import ScrollableContainer
-from textual.widgets import ListItem, Static
+from textual.widgets import ListItem, RichLog, Static
 
 from ..models import SearchResult, Session
 from ..providers import get_provider
@@ -168,20 +167,28 @@ class SearchResultItem(ListItem):
         return text
 
 
-class SessionDetailPanel(ScrollableContainer, can_focus=True):
-    """Scrollable panel showing session details."""
+class SessionDetailPanel(RichLog, can_focus=True):
+    """Scrollable panel showing session details using RichLog for incremental rendering."""
 
     def __init__(self, id: str = None):
-        super().__init__(id=id)
+        super().__init__(id=id, markup=False, wrap=True)
         self.session: Optional[Session] = None
-        self._content = Static("", markup=False)
-
-    def compose(self) -> ComposeResult:
-        yield self._content
+        self._transcript_messages: list[Text] = []
 
     def update(self, text: Text) -> None:
-        """Update the content."""
-        self._content.update(text)
+        """Update the content (replaces all content)."""
+        self.clear()
+        self.write(text)
+        self._transcript_messages = []
+
+    def write_message(self, text: Text) -> None:
+        """Append a single message to the log (for streaming transcripts)."""
+        self._transcript_messages.append(text)
+        self.write(text)
+
+    def get_transcript_text(self) -> str:
+        """Get plain text of all transcript messages for clipboard."""
+        return "\n".join(t.plain for t in self._transcript_messages)
 
     def show_session(self, session: Session, child_count: int = 0):
         """Update display with session info."""
@@ -282,13 +289,13 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
 
         self.update(text)
 
-    def show_full_transcript(self, session: Session, messages: list[dict]):
-        """Display the full session transcript with all messages."""
+    def show_full_transcript_start(self, session: Session, total: int):
+        """Start streaming a full transcript — write header, clear previous content."""
         self.session = session
-        provider = get_provider(session.harness)
+        self.clear()
+        self._transcript_messages = []
 
         text = Text()
-
         display_title = session.title or session.project_name
         text.append("━━━ Full Transcript ━━━\n", style="bold cyan")
         text.append("Session: ", style="bold")
@@ -296,45 +303,56 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         text.append("Path: ", style="bold")
         text.append(f"{session.project_path}\n", style="dim")
         text.append("Messages: ", style="bold")
-        text.append(f"{len(messages)}\n")
+        text.append(f"{total}\n")
         text.append("\n")
 
-        if not messages:
+        if total == 0:
             text.append("(no messages found)\n", style="dim")
-            self.update(text)
-            return
 
-        for i, msg in enumerate(messages, 1):
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
+        self.write(text)
 
-            if role == "user":
-                label = f"┌─ [{i}] User "
-                style = "bold green"
-                border_style = "green"
-            else:
-                label = f"┌─ [{i}] Assistant "
-                style = "bold magenta"
-                border_style = "magenta"
-
-            text.append(label, style=style)
-            text.append("─" * max(1, 40 - len(label)), style=border_style)
-            text.append("\n")
-
-            for line in content.split("\n"):
-                text.append("│ ", style=border_style)
-                text.append(f"{line}\n")
-
-            text.append("└", style=border_style)
-            text.append("─" * 40, style=border_style)
-            text.append("\n\n")
-
+    def show_full_transcript_end(self):
+        """Write the transcript footer."""
+        text = Text()
         text.append("━━━ End of Transcript ━━━\n", style="bold cyan")
         text.append("Press ", style="dim")
         text.append("Shift+Tab", style="bold")
-        text.append(" to return to list", style="dim")
+        text.append(" to return to list | ", style="dim")
+        text.append("y", style="bold")
+        text.append(" copy all | ", style="dim")
+        text.append("c", style="bold")
+        text.append(" copy visible message", style="dim")
+        self.write(text)
 
-        self.update(text)
+    @staticmethod
+    def build_message_text(i: int, msg: dict) -> Text:
+        """Build a Rich Text object for a single transcript message."""
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+
+        if role == "user":
+            label = f"┌─ [{i}] User "
+            style = "bold green"
+            border_style = "green"
+        else:
+            label = f"┌─ [{i}] Assistant "
+            style = "bold magenta"
+            border_style = "magenta"
+
+        text = Text()
+        text.append(label, style=style)
+        text.append("─" * max(1, 40 - len(label)), style=border_style)
+        text.append("\n")
+
+        for line in content.split("\n"):
+            text.append("│ ", style=border_style)
+            text.append(f"{line}\n")
+
+        text.append("└", style=border_style)
+        text.append("─" * 40, style=border_style)
+        text.append("\n\n")
+
+        return text
 
     def show_search_result(self, result: SearchResult, query: str):
         """Show a search result with highlighted context."""

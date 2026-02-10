@@ -81,6 +81,8 @@ class AgentSessionsBrowser(App):
         Binding("f", "cycle_filter", "Filter"),
         Binding("i", "reindex", "reIndex"),
         Binding("t", "show_all_messages", "Transcript"),
+        Binding("y", "copy_transcript", "Copy All", show=False),
+        Binding("c", "copy_visible_message", "Copy Msg", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("down", "cursor_down", "Down", show=False),
@@ -567,25 +569,87 @@ class AgentSessionsBrowser(App):
     def action_show_all_messages(self):
         """Load and display full session transcript."""
         if self.selected_session:
-            self.notify("Loading full transcript...")
+            self.notify("Loading transcript...")
             self._load_full_transcript(self.selected_session)
 
     @work(thread=True)
     def _load_full_transcript(self, session: Session):
-        """Load all messages for a session in a background thread."""
-        provider = get_provider(session.harness)
-        if not provider:
-            return
-        messages = provider.get_session_messages(session)
-        self.call_from_thread(self._show_full_transcript, session, messages)
+        """Load messages from DB (fast) with provider fallback, stream to UI in batches."""
+        # Try DB first (already indexed, fast SQLite lookup)
+        db_msgs = self.db.get_session_messages(session.id)
+        if db_msgs:
+            messages = [{"role": m.role, "content": m.content or ""} for m in db_msgs]
+        else:
+            # Fall back to provider (re-parses JSONL from disk)
+            provider = get_provider(session.harness)
+            if not provider:
+                return
+            messages = provider.get_session_messages(session)
 
-    def _show_full_transcript(self, session: Session, messages: list[dict]):
-        """Render the full transcript in the detail panel."""
         detail = self.query_one("#detail-panel", SessionDetailPanel)
-        detail.show_full_transcript(session, messages)
+
+        # Write header on main thread
+        self.call_from_thread(detail.show_full_transcript_start, session, len(messages))
+        self.call_from_thread(self._focus_detail_panel)
+
+        # Stream messages in batches for responsive UI
+        BATCH_SIZE = 10
+        for i, msg in enumerate(messages, 1):
+            msg_text = SessionDetailPanel.build_message_text(i, msg)
+            self.call_from_thread(detail.write_message, msg_text)
+            # Yield to UI thread periodically
+            if i % BATCH_SIZE == 0:
+                import time as _time
+                _time.sleep(0.01)
+
+        # Write footer
+        self.call_from_thread(detail.show_full_transcript_end)
+
+    def _focus_detail_panel(self):
+        """Focus the detail panel (must be called from main thread)."""
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
         self.focus_pane = "detail"
         detail.focus()
         detail.scroll_home()
+
+    def action_copy_transcript(self):
+        """Copy full transcript text to clipboard (y key)."""
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
+        text = detail.get_transcript_text()
+        if not text:
+            self.notify("No transcript to copy", severity="warning")
+            return
+        try:
+            subprocess.run(["pbcopy"], input=text.encode(), check=True)
+            self.notify("Transcript copied to clipboard")
+        except Exception:
+            self.notify("Failed to copy to clipboard", severity="error")
+
+    def action_copy_visible_message(self):
+        """Copy the nearest transcript message to clipboard (c key)."""
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
+        if not detail._transcript_messages:
+            self.notify("No transcript messages", severity="warning")
+            return
+        # Pick the message closest to current scroll position
+        # Use scroll_offset to estimate which message is visible
+        scroll_y = detail.scroll_offset.y
+        content_height = detail.virtual_size.height
+        num_msgs = len(detail._transcript_messages)
+        if num_msgs == 0:
+            return
+        # Estimate message index from scroll fraction
+        if content_height > 0:
+            fraction = scroll_y / max(1, content_height)
+            idx = min(int(fraction * num_msgs), num_msgs - 1)
+        else:
+            idx = 0
+        msg_text = detail._transcript_messages[idx].plain
+        try:
+            subprocess.run(["pbcopy"], input=msg_text.encode(), check=True)
+            self.notify(f"Message {idx + 1}/{num_msgs} copied")
+        except Exception:
+            self.notify("Failed to copy to clipboard", severity="error")
 
     def action_reindex(self):
         """Reindex sessions and refresh the list."""
