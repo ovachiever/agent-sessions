@@ -17,13 +17,12 @@ from textual.widgets import Footer, Header, Input, ListView, LoadingIndicator, S
 
 from .cache import MetadataCache, generate_summary_sync, HAS_OPENAI
 from .index import SessionDatabase, SessionIndexer, HybridSearch
-from .models import SearchResult, Session
+from .models import Session
 from .providers import get_available_providers, get_provider
 from .search import search_sessions
 from .ui import (
     APP_CSS,
     ParentSessionItem,
-    SearchResultItem,
     SessionDetailPanel,
     SubagentSessionItem,
 )
@@ -115,9 +114,9 @@ class AgentSessionsBrowser(App):
         # Search state
         self._search_mode = False
         self._search_query = ""
-        self._search_results: dict[str, list[SearchResult]] = {}
+        self._search_scores: dict[str, float] = {}
         self._filtered_parents: list[Session] = []
-        self._current_session_results: list[SearchResult] = []
+        self._search_matching_children: list[Session] = []
 
         # Summary generation state
         self._summary_queue: Queue = Queue()
@@ -641,10 +640,7 @@ class AgentSessionsBrowser(App):
 
             if self._search_mode:
                 self._update_search_results_list(event.item.session)
-                if self._current_session_results:
-                    detail.show_search_result(self._current_session_results[0], self._search_query)
-                else:
-                    detail.show_session(event.item.session, 0)
+                detail.show_session(event.item.session, 0)
             else:
                 # Use precomputed children from cache
                 self._update_children_list(event.item.session)
@@ -652,26 +648,24 @@ class AgentSessionsBrowser(App):
                 detail.show_session(event.item.session, child_count)
 
     def _update_search_results_list(self, parent: Session):
-        """Update bottom pane with search results for this session."""
+        """Update bottom pane with matching children for this session."""
         results_list = self.query_one("#subagent-list", ListView)
         results_list.clear()
 
-        self._current_session_results = self._search_results.get(parent.id, [])
-
+        # Find children that also matched the search
         related_children = self._get_related_children(parent)
-        for child in related_children:
-            if child.id in self._search_results:
-                self._current_session_results.extend(self._search_results[child.id])
+        matching_children = [c for c in related_children if c.id in self._search_scores]
+        self._search_matching_children = matching_children
 
         self.query_one("#subagent-header", Static).update(
-            f"[bold yellow]Matches[/] [dim]({len(self._current_session_results)} in this session)[/]"
+            f"[bold yellow]Matching Sub-agents[/] [dim]({len(matching_children)})[/]"
         )
 
         container = self.query_one("#subagent-container")
-        if self._current_session_results:
+        if matching_children:
             container.remove_class("dimmed")
-            for result in self._current_session_results:
-                results_list.append(SearchResultItem(result, self._search_query))
+            for child in matching_children:
+                results_list.append(SubagentSessionItem(child, is_highlighted=True))
         else:
             container.add_class("dimmed")
 
@@ -680,10 +674,7 @@ class AgentSessionsBrowser(App):
         """Handle child or search result highlight."""
         detail = self.query_one("#detail-panel", SessionDetailPanel)
 
-        if event.item and isinstance(event.item, SearchResultItem):
-            self.selected_session = event.item.result.session
-            detail.show_search_result(event.item.result, self._search_query)
-        elif event.item and isinstance(event.item, SubagentSessionItem):
+        if event.item and isinstance(event.item, SubagentSessionItem):
             self.selected_session = event.item.session
             detail.show_session(event.item.session)
 
@@ -694,7 +685,7 @@ class AgentSessionsBrowser(App):
 
         if self.focus_pane == "parent":
             children_list = self.query_one("#subagent-list", ListView)
-            has_items = self._current_session_results if self._search_mode else self.current_children
+            has_items = self._search_matching_children if self._search_mode else self.current_children
             if has_items:
                 self.focus_pane = "subagent"
                 children_list.focus()
@@ -707,7 +698,7 @@ class AgentSessionsBrowser(App):
     def action_focus_detail(self):
         """Toggle between active left pane and detail panel (Shift+Tab)."""
         if self.focus_pane == "detail":
-            has_items = self._current_session_results if self._search_mode else self.current_children
+            has_items = self._search_matching_children if self._search_mode else self.current_children
             if self._last_left_pane == "subagent" and has_items:
                 self.focus_pane = "subagent"
                 self.query_one("#subagent-list", ListView).focus()
@@ -760,9 +751,9 @@ class AgentSessionsBrowser(App):
         """Clear search results and restore normal view."""
         self._search_mode = False
         self._search_query = ""
-        self._search_results = {}
+        self._search_scores = {}
         self._filtered_parents = []
-        self._current_session_results = []
+        self._search_matching_children = []
 
         search_input = self.query_one("#search-input", Input)
         search_input.remove_class("visible")
@@ -800,14 +791,12 @@ class AgentSessionsBrowser(App):
 
         # Use hybrid search (FTS + semantic)
         results = self.search_engine.search(self._search_query, limit=500)
-        self._search_results = {}
+        self._search_scores = {}
         for result in results:
-            if result.session_id not in self._search_results:
-                self._search_results[result.session_id] = []
-            self._search_results[result.session_id].append(result)
+            self._search_scores[result.session_id] = result.score
 
         matching_parent_ids = set()
-        for session_id in self._search_results:
+        for session_id in self._search_scores:
             for p in self.parent_sessions:
                 if p.id == session_id:
                     matching_parent_ids.add(session_id)
@@ -823,7 +812,7 @@ class AgentSessionsBrowser(App):
         search_input = self.query_one("#search-input", Input)
         search_input.remove_class("visible")
 
-        total_matches = sum(len(r) for r in self._search_results.values())
+        total_matches = len(self._search_scores)
         self.query_one("#parent-header", Static).update(
             f"[bold yellow]Search:[/] [white]{query}[/] [dim]({len(self._filtered_parents)} sessions, {total_matches} matches)[/]"
         )
@@ -832,7 +821,7 @@ class AgentSessionsBrowser(App):
         parent_list.clear()
         # Batch mount for performance (search results typically smaller, but be safe)
         items = [
-            ParentSessionItem(session, len(self._search_results.get(session.id, [])))
+            ParentSessionItem(session)
             for session in self._filtered_parents[:500]  # Limit display, not search
         ]
         parent_list.mount(*items)
