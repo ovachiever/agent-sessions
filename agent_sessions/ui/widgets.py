@@ -4,7 +4,8 @@ from typing import Optional
 
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.widgets import ListItem, RichLog, Static
+from textual.containers import ScrollableContainer
+from textual.widgets import ListItem, Static
 
 from ..models import SearchResult, Session
 from ..providers import get_provider
@@ -167,24 +168,35 @@ class SearchResultItem(ListItem):
         return text
 
 
-class SessionDetailPanel(RichLog, can_focus=True):
-    """Scrollable panel showing session details using RichLog for incremental rendering."""
+class SessionDetailPanel(ScrollableContainer, can_focus=True):
+    """Scrollable panel showing session details with selectable text."""
 
     def __init__(self, id: str = None):
-        super().__init__(id=id, markup=False, wrap=True)
+        super().__init__(id=id)
         self.session: Optional[Session] = None
         self._transcript_messages: list[Text] = []
 
     def update(self, text: Text) -> None:
         """Update the content (replaces all content)."""
-        self.clear()
-        self.write(text)
+        for child in list(self.children):
+            child.remove()
         self._transcript_messages = []
+        self.mount(Static(text, markup=False))
+
+    def write(self, text: Text) -> None:
+        """Append a text block."""
+        self.mount(Static(text, markup=False))
 
     def write_message(self, text: Text) -> None:
         """Append a single message to the log (for streaming transcripts)."""
         self._transcript_messages.append(text)
-        self.write(text)
+        self.mount(Static(text, markup=False))
+
+    def clear(self) -> None:
+        """Clear all content."""
+        for child in list(self.children):
+            child.remove()
+        self._transcript_messages = []
 
     def get_transcript_text(self) -> str:
         """Get plain text of all transcript messages for clipboard."""

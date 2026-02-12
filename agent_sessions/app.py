@@ -576,11 +576,20 @@ class AgentSessionsBrowser(App):
     def _load_full_transcript(self, session: Session):
         """Load messages from DB (fast) with provider fallback, stream to UI in batches."""
         # Try DB first (already indexed, fast SQLite lookup)
+        # But verify content quality — the indexer stores empty content for Claude Code
+        # sessions due to nested JSONL format mismatch. Require >50% of messages to have
+        # content before trusting the DB path.
         db_msgs = self.db.get_session_messages(session.id)
+        has_good_content = False
         if db_msgs:
+            with_content = sum(1 for m in db_msgs if m.content)
+            has_good_content = with_content > len(db_msgs) * 0.5
+
+        if db_msgs and has_good_content:
             messages = [{"role": m.role, "content": m.content or ""} for m in db_msgs]
         else:
             # Fall back to provider (re-parses JSONL from disk)
+            # This correctly handles Claude Code's nested message.content arrays
             provider = get_provider(session.harness)
             if not provider:
                 return
