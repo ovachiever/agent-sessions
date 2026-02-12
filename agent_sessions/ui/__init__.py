@@ -3,7 +3,6 @@
 from .widgets import (
     ParentSessionItem,
     SubagentSessionItem,
-    SearchResultItem,
     SessionDetailPanel,
 )
 from .styles import APP_CSS
@@ -11,7 +10,6 @@ from .styles import APP_CSS
 __all__ = [
     "ParentSessionItem",
     "SubagentSessionItem",
-    "SearchResultItem",
     "SessionDetailPanel",
     "APP_CSS",
 ]

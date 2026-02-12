@@ -7,7 +7,7 @@ from textual.app import ComposeResult
 from textual.containers import ScrollableContainer
 from textual.widgets import ListItem, Static
 
-from ..models import SearchResult, Session
+from ..models import Session
 from ..providers import get_provider
 
 
@@ -116,54 +116,6 @@ class SubagentSessionItem(ListItem):
         desc = self.session.first_prompt or "(no prompt)"
         desc = desc.replace("\n", " ").strip()
         text.append(truncate(desc, desc_width), style="white")
-
-        return text
-
-
-class SearchResultItem(ListItem):
-    """List item for search results."""
-
-    def __init__(self, result: SearchResult, query: str):
-        super().__init__()
-        self.result = result
-        self.query = query
-        self._static: Optional[Static] = None
-
-    def compose(self) -> ComposeResult:
-        self._static = Static(self._build_text(100))
-        yield self._static
-
-    def on_resize(self, event) -> None:
-        if self._static:
-            self._static.update(self._build_text(self.size.width))
-
-    def _build_text(self, width: int) -> Text:
-        text = Text()
-
-        # Role indicator
-        if self.result.role == "user":
-            text.append("U ", style="green bold")
-        else:
-            text.append("A ", style="magenta bold")
-
-        text.append("│ ", style="dim")
-
-        # Show matched line with highlighting
-        match_line = self.result.match_text.replace("\n", " ").strip()
-        prefix_width = 5
-        max_len = max(20, width - prefix_width)
-
-        # Try to highlight the query in the match
-        match_lower = match_line.lower()
-        query_lower = self.query.lower()
-        idx = match_lower.find(query_lower)
-
-        if idx >= 0 and len(match_line) <= max_len:
-            text.append(match_line[:idx])
-            text.append(match_line[idx:idx+len(self.query)], style="black on yellow")
-            text.append(match_line[idx+len(self.query):])
-        else:
-            text.append(truncate(match_line, max_len))
 
         return text
 
@@ -365,75 +317,6 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         text.append("\n\n")
 
         return text
-
-    def show_search_result(self, result: SearchResult, query: str):
-        """Show a search result with highlighted context."""
-        self.session = result.session
-        provider = get_provider(result.session.harness)
-
-        text = Text()
-
-        text.append("━━━ Search Result ━━━\n", style="bold yellow")
-        text.append("\n")
-
-        # Display title
-        display_title = result.session.title
-        if not display_title or display_title == "New Session":
-            display_title = result.session.project_name
-
-        text.append("Session: ", style="bold")
-        text.append(f"{truncate(display_title, 50)}\n")
-        text.append("Path: ", style="bold")
-        text.append(f"{result.session.project_path}\n", style="dim")
-        text.append("Role: ", style="bold")
-        if result.role == "user":
-            text.append("User\n", style="green bold")
-        else:
-            text.append("Assistant\n", style="magenta bold")
-        text.append("\n")
-
-        # Context before
-        text.append("┌─ Context ──────────────────────────────\n", style="bold cyan")
-        for line in result.context_before:
-            text.append("│ ", style="cyan dim")
-            text.append(f"{line}\n", style="dim")
-
-        # Matched line with highlighting
-        text.append("│ ", style="cyan")
-        match_line = result.match_text
-        match_lower = match_line.lower()
-        query_lower = query.lower()
-        idx = match_lower.find(query_lower)
-
-        if idx >= 0:
-            text.append(match_line[:idx])
-            text.append(match_line[idx:idx+len(query)], style="black on yellow bold")
-            text.append(match_line[idx+len(query):])
-        else:
-            text.append(match_line)
-        text.append("\n")
-
-        # Context after
-        for line in result.context_after:
-            text.append("│ ", style="cyan dim")
-            text.append(f"{line}\n", style="dim")
-        text.append("└───────────────────────────────────────\n", style="cyan")
-        text.append("\n")
-
-        # Resume command
-        text.append("━━━ Resume Command ━━━\n", style="bold yellow")
-        text.append("\n")
-        resume_cmd = provider.get_resume_command(result.session) if provider else f"# Resume not available"
-        text.append(f" {resume_cmd} ", style="bold white on blue")
-        text.append("\n\n")
-        text.append("Press ", style="dim")
-        text.append("Enter", style="bold")
-        text.append(" to copy | ", style="dim")
-        text.append("Escape", style="bold")
-        text.append(" to clear search", style="dim")
-
-        self.update(text)
-        self.scroll_home()
 
     def clear_display(self):
         """Clear the display."""

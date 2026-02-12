@@ -67,12 +67,12 @@ Screen {
     border: solid $success;
 }
 
-ParentSessionItem, SubagentSessionItem, SearchResultItem {
+ParentSessionItem, SubagentSessionItem {
     height: 1;
     padding: 0 1;
 }
 
-ParentSessionItem:hover, SubagentSessionItem:hover, SearchResultItem:hover {
+ParentSessionItem:hover, SubagentSessionItem:hover {
     background: $surface-lighten-1;
 }
 

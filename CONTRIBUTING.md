@@ -39,6 +39,11 @@ class MyProvider(SessionProvider):
     def parse_session(self, path):
         ...
 
+    def get_session_messages(self, session):
+        """Return [{"role": "user"|"assistant", "content": "..."}].
+        Filter out system/meta messages. Used for transcripts and summaries."""
+        ...
+
     def get_resume_command(self, session):
         return f"my-tool --resume {session.id}"
 ```

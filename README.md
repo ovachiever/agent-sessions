@@ -13,7 +13,7 @@
 
 ---
 
-If you use more than one AI coding assistant, your conversations are scattered across different directories, formats, and tools. **agent-sessions** unifies them into a single, fast terminal interface. Search across all your sessions at once, view full transcripts, and resume any conversation instantly -- regardless of which tool started it.
+If you use more than one AI coding assistant, your conversations are scattered across different directories, formats, and tools. **agent-sessions** pulls them into a single terminal interface. Search across every session at once, read full transcripts with selectable text, copy what you need, and resume any conversation — regardless of which tool started it.
 
 <p align="center">
   <img src="assets/screenshot.jpg?v=3" alt="agent-sessions TUI" width="900">
@@ -55,26 +55,29 @@ agent-sessions    # launch the TUI
 ais               # short alias
 ```
 
-On first launch, sessions are automatically discovered and indexed. Use `i` to reindex when you want to pick up new sessions without restarting.
+On first launch, sessions are discovered and indexed automatically. Press `i` at any time to pick up new sessions without restarting.
 
 ## Keybindings
 
 | Key | Action |
 |-----|--------|
-| `j/k` `↑/↓` | Navigate |
+| `j/k` `↑/↓` | Navigate session list |
 | `Tab` | Switch between session list and sub-agent list |
-| `Shift+Tab` | Focus detail panel |
+| `Shift+Tab` | Focus detail panel (for scrolling and text selection) |
 | `/` | Search across all sessions |
 | `f` | Cycle provider filter |
-| `t` | View full session transcript |
-| `i` | Reindex (pick up new sessions) |
+| `t` | Load full session transcript |
+| `y` | Copy entire transcript to clipboard |
+| `c` | Copy visible message to clipboard |
 | `r` | Resume session (opens in correct project directory) |
 | `Enter` | Copy resume command to clipboard |
+| `i` | Reindex (pick up new sessions) |
+| `Escape` | Back / clear search |
 | `q` | Quit |
 
 ## Search
 
-Full-text search runs across every message in every session. Supports inline filters:
+Full-text search runs across every message in every session, with optional semantic matching when AI features are enabled. Supports inline filters:
 
 ```
 auth middleware                          # search everywhere
@@ -86,17 +89,27 @@ Modifiers: `harness:`, `project:`, `after:` (e.g. `7d`, `1w`), `before:` (date o
 
 ## Features
 
-- **Multi-provider** -- browse Droid, Claude Code, Cursor, and OpenCode sessions in one place
-- **Split-pane UI** -- parent sessions on top, linked sub-agents below
-- **Full-text search** -- FTS5-indexed across all messages, with optional semantic search
-- **Full transcripts** -- read any session's complete conversation
-- **Session resume** -- jump back into any session with the right tool, in the right directory
-- **AI summaries** -- auto-generated one-line summaries via GPT-5.2 (optional)
-- **Incremental indexing** -- fast startup, only processes new/changed sessions
+- **Multi-provider** — browse Droid, Claude Code, Cursor, and OpenCode sessions in one place
+- **Split-pane UI** — parent sessions on top, linked sub-agents below
+- **Full-text search** — FTS5-indexed across all messages, with optional hybrid semantic search
+- **Streaming transcripts** — read any session's complete conversation, streamed in batches for responsiveness
+- **Selectable text** — highlight and copy directly from transcript content using your terminal's native selection
+- **Clipboard integration** — `y` copies the full transcript, `c` copies the message at your scroll position
+- **Session resume** — jump back into any session with the right tool, in the right directory
+- **AI summaries** — auto-generated one-line summaries via GPT-5.2 (optional)
+- **Incremental indexing** — fast startup; only processes new or changed sessions
+
+## Transcript Viewer
+
+Press `t` on any session to load its full conversation. Messages stream into the detail panel as they load — user messages bordered in green, assistant messages in magenta, each numbered for reference.
+
+The transcript renders as selectable terminal text. Highlight with your mouse to copy specific passages, or use `y` to copy everything at once. Press `c` to copy the message nearest your scroll position.
+
+For sessions with nested JSONL formats (like Claude Code), the viewer automatically falls back to the provider's native parser when the indexed content is incomplete.
 
 ## Optional Dependencies
 
-The core tool has no heavy dependencies. AI features are opt-in and require a single OpenAI API key:
+The core tool has no heavy dependencies. AI features are opt-in:
 
 ```bash
 pip install agent-sessions[ai]    # AI summaries + semantic search
@@ -112,8 +125,8 @@ export OPENAI_API_KEY="sk-..."
 
 With the `ai` extra installed and key set, you get:
 
-- **AI summaries** -- GPT-5.2 generates short one-line summaries for each session in the background. Summaries are cached in a local SQLite database so each session is only summarized once. You'll see lines flip from grey to white in real-time as they're generated.
-- **Semantic search** -- search uses OpenAI embeddings alongside FTS5 for hybrid keyword + semantic matching, so you can find sessions by meaning, not just exact words.
+- **AI summaries** — GPT-5.2 generates short one-line summaries for each session in the background. Summaries are cached in a local SQLite database, so each session is only summarized once. Lines flip from grey to white in real-time as they arrive.
+- **Semantic search** — OpenAI embeddings run alongside FTS5 for hybrid keyword + semantic matching. Find sessions by meaning, not just exact words.
 
 ## Adding a Provider
 
@@ -137,6 +150,9 @@ class MyProvider(SessionProvider):
         ...
 
     def parse_session(self, path):
+        ...
+
+    def get_session_messages(self, session):
         ...
 
     def get_resume_command(self, session):
