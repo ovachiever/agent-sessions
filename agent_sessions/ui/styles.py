@@ -67,6 +67,13 @@ Screen {
     border: solid $success;
 }
 
+#transcript-text {
+    height: 1fr;
+    border: none;
+    padding: 0;
+    background: transparent;
+}
+
 ParentSessionItem, SubagentSessionItem {
     height: 1;
     padding: 0 1;

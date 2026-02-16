@@ -5,7 +5,7 @@ from typing import Optional
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import ScrollableContainer
-from textual.widgets import ListItem, Static
+from textual.widgets import ListItem, Static, TextArea
 
 from ..models import Session
 from ..providers import get_provider
@@ -16,6 +16,21 @@ def truncate(text: str, max_len: int = 100) -> str:
     if len(text) <= max_len:
         return text
     return text[:max_len - 3] + "..."
+
+
+class TranscriptArea(TextArea):
+    """Read-only TextArea that lets bare keypresses bubble to app bindings.
+
+    In read-only mode, printable single-key presses (j, k, q, y, a, …) are
+    not consumed, so they reach the app-level key bindings as expected.
+    Modifier combos (Ctrl+A, Shift+arrows) are still handled by TextArea for
+    select-all and extend-selection.
+    """
+
+    async def _on_key(self, event) -> None:
+        if self.read_only and event.is_printable:
+            return  # bubble to app bindings
+        await super()._on_key(event)
 
 
 class ParentSessionItem(ListItem):
@@ -135,12 +150,15 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         self._scroll_direction: int = 0  # -1 up, 0 none, 1 down
         self._scroll_speed: int = 0
         self._auto_scroll_timer = None
+        self._in_transcript_mode: bool = False
+        self._transcript_area: Optional[TranscriptArea] = None
+        self._transcript_buf: str = ""
 
-    # -- drag-to-scroll at viewport edges --
+    # -- drag-to-scroll at viewport edges (non-transcript mode) --
 
     def on_mouse_down(self, event) -> None:
         """Track left-button press for drag-scroll."""
-        if event.button == 1:
+        if event.button == 1 and not self._in_transcript_mode:
             self._stop_auto_scroll()
             self._dragging = True
 
@@ -154,7 +172,6 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         if not self._dragging:
             return
         if event.y < self.EDGE_ZONE:
-            # Faster the closer to the very edge (or above the widget)
             speed = self.SCROLL_BASE + max(0, self.EDGE_ZONE - event.y)
             self._start_auto_scroll(-1, speed)
         elif event.y >= self.size.height - self.EDGE_ZONE:
@@ -186,8 +203,18 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
                 y=self._scroll_direction * self._scroll_speed, animate=False
             )
 
+    # -- focus delegation --
+
+    def on_focus(self, event) -> None:
+        """Delegate focus to TextArea when in transcript mode."""
+        if self._in_transcript_mode and self._transcript_area:
+            self._transcript_area.focus()
+
+    # -- content management --
+
     def update(self, text: Text) -> None:
         """Update the content (replaces all content)."""
+        self._exit_transcript_mode()
         for child in list(self.children):
             child.remove()
         self._transcript_messages = []
@@ -198,15 +225,24 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         self.mount(Static(text, markup=False))
 
     def write_message(self, text: Text) -> None:
-        """Append a single message to the log (for streaming transcripts)."""
+        """Append a single message to the transcript."""
         self._transcript_messages.append(text)
-        self.mount(Static(text, markup=False))
+        if self._in_transcript_mode:
+            self._transcript_buf += text.plain
+        else:
+            self.mount(Static(text, markup=False))
 
     def clear(self) -> None:
         """Clear all content."""
+        self._exit_transcript_mode()
         for child in list(self.children):
             child.remove()
         self._transcript_messages = []
+
+    def _exit_transcript_mode(self) -> None:
+        self._in_transcript_mode = False
+        self._transcript_area = None
+        self._transcript_buf = ""
 
     def get_transcript_text(self) -> str:
         """Get plain text of all transcript messages for clipboard."""
@@ -312,41 +348,52 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         self.update(text)
 
     def show_full_transcript_start(self, session: Session, total: int):
-        """Start streaming a full transcript — write header, clear previous content."""
+        """Start streaming a full transcript using a selectable TextArea."""
         self.session = session
-        self.clear()
+        for child in list(self.children):
+            child.remove()
         self._transcript_messages = []
+        self._in_transcript_mode = True
 
-        text = Text()
         display_title = session.title or session.project_name
-        text.append("━━━ Full Transcript ━━━\n", style="bold cyan")
-        text.append("Session: ", style="bold")
-        text.append(f"{truncate(display_title, 60)}\n")
-        text.append("Path: ", style="bold")
-        text.append(f"{session.project_path}\n", style="dim")
-        text.append("Messages: ", style="bold")
-        text.append(f"{total}\n")
-        text.append("\n")
-
+        header = "━━━ Full Transcript ━━━\n"
+        header += f"Session: {truncate(display_title, 60)}\n"
+        header += f"Path: {session.project_path}\n"
+        header += f"Messages: {total}\n\n"
         if total == 0:
-            text.append("(no messages found)\n", style="dim")
+            header += "(no messages found)\n"
+        self._transcript_buf = header
 
-        self.write(text)
+        area = TranscriptArea(
+            "Loading transcript...",
+            read_only=True,
+            show_line_numbers=False,
+            soft_wrap=True,
+            id="transcript-text",
+        )
+        self.mount(area)
+        self._transcript_area = area
 
     def show_full_transcript_end(self):
-        """Write the transcript footer."""
-        text = Text()
-        text.append("━━━ End of Transcript ━━━\n", style="bold cyan")
-        text.append("Press ", style="dim")
-        text.append("Shift+Tab", style="bold")
-        text.append(" to return to list | ", style="dim")
-        text.append("a", style="bold")
-        text.append("/", style="dim")
-        text.append("y", style="bold")
-        text.append(" copy all | ", style="dim")
-        text.append("c", style="bold")
-        text.append(" copy visible message", style="dim")
-        self.write(text)
+        """Finish the transcript — populate TextArea with full content."""
+        if self._in_transcript_mode and self._transcript_area:
+            self._transcript_buf += "\n━━━ End of Transcript ━━━\n"
+            self._transcript_buf += "Ctrl+A select all | a/y copy all | c copy visible"
+            self._transcript_area.text = self._transcript_buf
+            self._transcript_area.move_cursor((0, 0))
+        else:
+            text = Text()
+            text.append("━━━ End of Transcript ━━━\n", style="bold cyan")
+            text.append("Press ", style="dim")
+            text.append("Shift+Tab", style="bold")
+            text.append(" to return to list | ", style="dim")
+            text.append("a", style="bold")
+            text.append("/", style="dim")
+            text.append("y", style="bold")
+            text.append(" copy all | ", style="dim")
+            text.append("c", style="bold")
+            text.append(" copy visible message", style="dim")
+            self.write(text)
 
     @staticmethod
     def build_message_text(i: int, msg: dict) -> Text:
