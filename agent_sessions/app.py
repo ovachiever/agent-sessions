@@ -82,7 +82,7 @@ class AgentSessionsBrowser(App):
         Binding("i", "reindex", "reIndex"),
         Binding("t", "show_all_messages", "Transcript"),
         Binding("y", "copy_transcript", "Copy All", show=False),
-        Binding("ctrl+a", "select_all_transcript", "Select All", show=False, priority=True),
+        Binding("a", "select_all_transcript", "Select All", show=False),
         Binding("c", "copy_visible_message", "Copy Msg", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
