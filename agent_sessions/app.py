@@ -82,6 +82,7 @@ class AgentSessionsBrowser(App):
         Binding("i", "reindex", "reIndex"),
         Binding("t", "show_all_messages", "Transcript"),
         Binding("y", "copy_transcript", "Copy All", show=False),
+        Binding("ctrl+a", "select_all_transcript", "Select All", show=False, priority=True),
         Binding("c", "copy_visible_message", "Copy Msg", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
@@ -631,6 +632,20 @@ class AgentSessionsBrowser(App):
         try:
             subprocess.run(["pbcopy"], input=text.encode(), check=True)
             self.notify("Transcript copied to clipboard")
+        except Exception:
+            self.notify("Failed to copy to clipboard", severity="error")
+
+    def action_select_all_transcript(self):
+        """Select all transcript text and copy to clipboard (Ctrl+A)."""
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
+        text = detail.get_transcript_text()
+        if not text:
+            self.notify("No transcript to select", severity="warning")
+            return
+        try:
+            subprocess.run(["pbcopy"], input=text.encode(), check=True)
+            lines = text.count("\n") + 1
+            self.notify(f"Transcript selected & copied ({lines} lines)")
         except Exception:
             self.notify("Failed to copy to clipboard", severity="error")
 

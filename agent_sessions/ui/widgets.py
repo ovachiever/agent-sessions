@@ -123,8 +123,9 @@ class SubagentSessionItem(ListItem):
 class SessionDetailPanel(ScrollableContainer, can_focus=True):
     """Scrollable panel showing session details with selectable text."""
 
-    EDGE_ZONE = 3  # lines from edge to trigger auto-scroll
-    SCROLL_INTERVAL = 0.05  # seconds between scroll ticks
+    EDGE_ZONE = 5  # lines from edge to trigger auto-scroll
+    SCROLL_INTERVAL = 0.03  # seconds between scroll ticks
+    SCROLL_BASE = 4  # minimum lines per tick
 
     def __init__(self, id: str = None):
         super().__init__(id=id)
@@ -132,6 +133,7 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         self._transcript_messages: list[Text] = []
         self._dragging: bool = False
         self._scroll_direction: int = 0  # -1 up, 0 none, 1 down
+        self._scroll_speed: int = 0
         self._auto_scroll_timer = None
 
     # -- drag-to-scroll at viewport edges --
@@ -152,32 +154,37 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         if not self._dragging:
             return
         if event.y < self.EDGE_ZONE:
-            self._start_auto_scroll(-1)
+            # Faster the closer to the very edge (or above the widget)
+            speed = self.SCROLL_BASE + max(0, self.EDGE_ZONE - event.y)
+            self._start_auto_scroll(-1, speed)
         elif event.y >= self.size.height - self.EDGE_ZONE:
-            self._start_auto_scroll(1)
+            speed = self.SCROLL_BASE + max(0, event.y - (self.size.height - self.EDGE_ZONE))
+            self._start_auto_scroll(1, speed)
         else:
             self._stop_auto_scroll()
 
-    def _start_auto_scroll(self, direction: int) -> None:
-        if self._scroll_direction == direction and self._auto_scroll_timer is not None:
+    def _start_auto_scroll(self, direction: int, speed: int = 4) -> None:
+        if self._scroll_direction == direction and self._scroll_speed == speed:
             return
         self._stop_auto_scroll()
         self._scroll_direction = direction
+        self._scroll_speed = speed
         self._auto_scroll_timer = self.set_interval(
             self.SCROLL_INTERVAL, self._do_auto_scroll
         )
 
     def _stop_auto_scroll(self) -> None:
         self._scroll_direction = 0
+        self._scroll_speed = 0
         if self._auto_scroll_timer is not None:
             self._auto_scroll_timer.stop()
             self._auto_scroll_timer = None
 
     def _do_auto_scroll(self) -> None:
-        if self._scroll_direction == -1:
-            self.scroll_up(animate=False)
-        elif self._scroll_direction == 1:
-            self.scroll_down(animate=False)
+        if self._scroll_direction != 0:
+            self.scroll_relative(
+                y=self._scroll_direction * self._scroll_speed, animate=False
+            )
 
     def update(self, text: Text) -> None:
         """Update the content (replaces all content)."""
