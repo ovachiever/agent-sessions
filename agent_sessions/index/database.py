@@ -845,9 +845,8 @@ class SessionDatabase:
         """Build an FTS5 query from a natural-language string.
 
         Tokenizes into alphanumeric words, wraps each in quotes (to handle
-        any FTS5 special chars), and joins with OR so that matching *any*
-        term returns results.  Common stop-words are stripped to improve
-        ranking quality.
+        any FTS5 special chars), and joins with AND so that ALL terms must
+        be present.  Common stop-words are stripped to improve ranking.
         """
         import re as _re
 
@@ -867,10 +866,10 @@ class SessionDatabase:
         if not terms:
             return '""'
 
-        return " OR ".join(f'"{t}"' for t in terms)
+        return " AND ".join(f'"{t}"' for t in terms)
 
     def search_messages_fts(
-        self, query: str, limit: int = 100
+        self, query: str, limit: int = 50
     ) -> list[tuple[str, float]]:
         """Search messages via FTS5. Returns (session_id, bm25_score) - lower scores = more relevant."""
         self._ensure_schema()
@@ -880,7 +879,7 @@ class SessionDatabase:
         # bm25() is an auxiliary function that breaks with GROUP BY on SQLite 3.51+
         rows = conn.execute(
             """
-            SELECT m.session_id, rank as score
+            SELECT m.session_id, MIN(rank) as score
             FROM messages_fts
             JOIN messages m ON messages_fts.rowid = m.rowid
             WHERE messages_fts MATCH ?
@@ -893,7 +892,7 @@ class SessionDatabase:
         return [(row["session_id"], row["score"]) for row in rows]
 
     def search_sessions_fts(
-        self, query: str, limit: int = 100
+        self, query: str, limit: int = 50
     ) -> list[tuple[str, float]]:
         """Search session metadata via FTS5. Returns (session_id, bm25_score) - lower scores = more relevant."""
         self._ensure_schema()

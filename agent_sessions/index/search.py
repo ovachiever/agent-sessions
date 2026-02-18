@@ -45,6 +45,7 @@ class HybridSearch:
         semantic_results = self._search_semantic(query, limit=limit * 2)
 
         combined = self._combine_scores(fts_results, semantic_results, fts_w, sem_w)
+        combined = [r for r in combined if r.score >= 0.1]
         combined.sort(key=lambda r: r.score, reverse=True)
         results = combined[:limit]
 

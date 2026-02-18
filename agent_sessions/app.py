@@ -878,7 +878,7 @@ class AgentSessionsBrowser(App):
         self._search_query = query.strip()
 
         # Use hybrid search (FTS + semantic)
-        results = self.search_engine.search(self._search_query, limit=500)
+        results = self.search_engine.search(self._search_query, limit=50)
         self._search_scores = {}
         for result in results:
             self._search_scores[result.session_id] = result.score
@@ -892,7 +892,7 @@ class AgentSessionsBrowser(App):
             for s in self.child_sessions:
                 if s.id == session_id:
                     for p in self.parent_sessions:
-                        if p.project_path == s.project_path:
+                        if s.parent_id == p.id:
                             matching_parent_ids.add(p.id)
 
         self._filtered_parents = [p for p in self.parent_sessions if p.id in matching_parent_ids]

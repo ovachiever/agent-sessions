@@ -84,15 +84,36 @@ class EmbeddingGenerator:
         if not self._available or not chunks:
             return chunks
 
-        for batch_start in range(0, len(chunks), BATCH_SIZE):
-            batch = chunks[batch_start:batch_start + BATCH_SIZE]
-            texts = [chunk.content for chunk in batch]
-            
-            embeddings = self.embed_texts(texts)
-            
-            for chunk, embedding in zip(batch, embeddings):
-                if embedding is not None:
-                    chunk.embedding = self.serialize_embedding(embedding)
+        MAX_BATCH_TOKENS = 250_000
+
+        # Build token-aware batches
+        batches: list[list[Chunk]] = []
+        current_batch: list[Chunk] = []
+        current_tokens = 0
+
+        for chunk in chunks:
+            est_tokens = len(chunk.content) // 4
+            if current_batch and current_tokens + est_tokens > MAX_BATCH_TOKENS:
+                batches.append(current_batch)
+                current_batch = []
+                current_tokens = 0
+            current_batch.append(chunk)
+            current_tokens += est_tokens
+
+        if current_batch:
+            batches.append(current_batch)
+
+        for batch in batches:
+            # Also respect the count-based limit
+            for sub_start in range(0, len(batch), BATCH_SIZE):
+                sub_batch = batch[sub_start:sub_start + BATCH_SIZE]
+                texts = [c.content for c in sub_batch]
+
+                embeddings = self.embed_texts(texts)
+
+                for c, embedding in zip(sub_batch, embeddings):
+                    if embedding is not None:
+                        c.embedding = self.serialize_embedding(embedding)
 
         return chunks
 
