@@ -45,7 +45,7 @@ class HybridSearch:
         semantic_results = self._search_semantic(query, limit=limit * 2)
 
         combined = self._combine_scores(fts_results, semantic_results, fts_w, sem_w)
-        combined = [r for r in combined if r.score >= 0.1]
+        combined = [r for r in combined if r.score >= 0.2]
         combined.sort(key=lambda r: r.score, reverse=True)
         results = combined[:limit]
 
@@ -153,6 +153,12 @@ class HybridSearch:
 
     @staticmethod
     def _normalize_scores(scores: dict[str, float]) -> dict[str, float]:
+        """Normalize scores to [FLOOR, 1.0].
+
+        Uses a floor of 0.5 so even the weakest result in a set retains
+        meaningful weight — two perfect FTS matches with similar BM25
+        scores shouldn't map to 1.0 and 0.0.
+        """
         if not scores:
             return {}
 
@@ -163,7 +169,8 @@ class HybridSearch:
         if max_val == min_val:
             return {k: 1.0 for k in scores}
 
-        return {k: (v - min_val) / (max_val - min_val) for k, v in scores.items()}
+        FLOOR = 0.5
+        return {k: FLOOR + (1.0 - FLOOR) * (v - min_val) / (max_val - min_val) for k, v in scores.items()}
 
     @staticmethod
     def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
