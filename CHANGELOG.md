@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.1 (2026-02-18)
+
+### Fixes
+
+- FTS queries now require ALL terms (AND) instead of matching any (OR) — "ghostty tmux" returns sessions containing both words
+- Search results sorted by relevance score instead of date
+- Absolute cosine similarity threshold (0.35) filters semantic noise — keyword queries no longer return the entire database
+- Score threshold (0.1) on combined results drops the weak-match tail
+- Child-to-parent mapping uses `parent_id` foreign key instead of project_path heuristic
+- Stop-word removal preserves compound terms like "ctrl+A" where stripping would discard meaningful parts
+
+### Improvements
+
+- FTS score aggregation uses MIN(rank) for best-match-per-session instead of arbitrary row
+- Embedding batches capped at 250K tokens to prevent API overflow
+- Internal FTS limits reduced from 100 to 50 for tighter result sets
+
 ## 0.6.0 (2026-02-12)
 
 ### Features
@@ -9,7 +26,7 @@
 - Clipboard copy: `y` for full transcript, `c` for the message at current scroll position
 - DB-first transcript loading with automatic provider fallback for format-sensitive sessions
 - Last response preview stored in session index for richer detail views
-- FTS5 query builder with stop-word stripping and OR-joined term matching
+- FTS5 query builder with stop-word stripping
 - Schema migration (v1 → v2) with automatic FTS index rebuild
 
 ### Improvements

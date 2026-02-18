@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-sessions"
-version = "0.6.0"
+version = "0.6.1"
 description = "Universal TUI for browsing and resuming sessions from multiple AI coding assistants"
 readme = "README.md"
 license = {text = "MIT"}
