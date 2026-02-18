@@ -64,6 +64,11 @@ class EmbeddingGenerator:
         if not self._available or not texts or self._client is None:
             return [None for _ in texts]
 
+        # Truncate texts exceeding embedding model context (8191 tokens; code
+        # averages ~3.5 chars/token so use conservative estimate)
+        MAX_CHARS = 28000
+        texts = [t[:MAX_CHARS] for t in texts]
+
         try:
             response = self._client.embeddings.create(
                 model=EMBEDDING_MODEL,

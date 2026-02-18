@@ -382,23 +382,9 @@ class SessionIndexer:
                         continue
 
         else:
-            if session.raw_path and session.raw_path.exists():
-                try:
-                    if session.raw_path.suffix == ".jsonl":
-                        with open(session.raw_path) as f:
-                            for i, line in enumerate(f):
-                                try:
-                                    msg = json.loads(line)
-                                    messages.append({
-                                        "id": msg.get("id", f"{session.id}_msg_{i}"),
-                                        "role": msg.get("role", ""),
-                                        "content": msg.get("content", ""),
-                                        "timestamp": msg.get("timestamp"),
-                                    })
-                                except json.JSONDecodeError:
-                                    continue
-                except IOError:
-                    pass
+            # Delegate to the provider — it correctly handles format-specific
+            # quirks (Claude Code nested message.content arrays, etc.)
+            messages = provider.get_session_messages(session)
 
         if not messages:
             if session.first_prompt:
