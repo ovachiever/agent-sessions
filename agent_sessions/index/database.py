@@ -860,8 +860,9 @@ class SessionDatabase:
 
         tokens = _re.findall(r"[a-zA-Z0-9]+", query.lower())
         terms = [t for t in tokens if t not in _STOP_WORDS]
-        if not terms:
-            # Fall back to all tokens if everything was a stop-word
+        if len(terms) < 2 and len(tokens) >= 2:
+            # Preserve compound terms like "ctrl+A" where stop-word
+            # removal would discard meaningful parts
             terms = tokens
         if not terms:
             return '""'

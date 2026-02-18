@@ -883,19 +883,25 @@ class AgentSessionsBrowser(App):
         for result in results:
             self._search_scores[result.session_id] = result.score
 
-        matching_parent_ids = set()
-        for session_id in self._search_scores:
-            for p in self.parent_sessions:
-                if p.id == session_id:
-                    matching_parent_ids.add(session_id)
-                    break
-            for s in self.child_sessions:
-                if s.id == session_id:
-                    for p in self.parent_sessions:
-                        if s.parent_id == p.id:
-                            matching_parent_ids.add(p.id)
+        # Build parent scores: direct matches + child-to-parent propagation
+        parent_scores: dict[str, float] = {}
+        parent_ids = {p.id for p in self.parent_sessions}
 
-        self._filtered_parents = [p for p in self.parent_sessions if p.id in matching_parent_ids]
+        for session_id, score in self._search_scores.items():
+            if session_id in parent_ids:
+                parent_scores[session_id] = max(parent_scores.get(session_id, 0), score)
+            else:
+                # Child match — propagate score to parent
+                for s in self.child_sessions:
+                    if s.id == session_id and s.parent_id and s.parent_id in parent_ids:
+                        parent_scores[s.parent_id] = max(parent_scores.get(s.parent_id, 0), score)
+
+        parents_by_id = {p.id: p for p in self.parent_sessions}
+        self._filtered_parents = [parents_by_id[pid] for pid in parent_scores]
+        self._filtered_parents.sort(key=lambda p: parent_scores.get(p.id, 0), reverse=True)
+
+        # Store parent-level scores for display
+        self._search_scores.update(parent_scores)
 
         search_input = self.query_one("#search-input", Input)
         search_input.remove_class("visible")

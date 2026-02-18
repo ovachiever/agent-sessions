@@ -95,6 +95,8 @@ class HybridSearch:
         if not self._chunk_embeddings_cache:
             return {}
 
+        MIN_COSINE = 0.35
+
         session_scores: dict[str, list[float]] = defaultdict(list)
         for session_id, _chunk_id, embedding_blob in self._chunk_embeddings_cache:
             chunk_embedding = EmbeddingGenerator.deserialize_embedding(embedding_blob)
@@ -103,7 +105,12 @@ class HybridSearch:
 
         aggregated: dict[str, float] = {}
         for session_id, similarities in session_scores.items():
-            aggregated[session_id] = max(similarities)
+            best = max(similarities)
+            if best >= MIN_COSINE:
+                aggregated[session_id] = best
+
+        if not aggregated:
+            return {}
 
         sorted_sessions = sorted(aggregated.items(), key=lambda x: x[1], reverse=True)
         top_sessions = dict(sorted_sessions[:limit])
