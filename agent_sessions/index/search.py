@@ -1,11 +1,12 @@
-import math
+import re
 import time
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Optional
 
+import numpy as np
+
 from .database import SessionDatabase
-from .embeddings import EmbeddingGenerator
+from .embeddings import EmbeddingGenerator, EMBEDDING_DIMENSIONS
 
 
 @dataclass
@@ -28,7 +29,46 @@ class HybridSearch:
         self._embedder = embedder or EmbeddingGenerator()
         self._fts_weight = fts_weight
         self._semantic_weight = semantic_weight
-        self._chunk_embeddings_cache: Optional[list[tuple[str, int, bytes]]] = None
+        # Vectorized cache: numpy matrix + parallel session_id list
+        self._embedding_matrix: Optional[np.ndarray] = None
+        self._embedding_norms: Optional[np.ndarray] = None
+        self._chunk_session_ids: Optional[list[str]] = None
+
+    def _load_embedding_cache(self):
+        """Load embeddings from DB into a pre-normalized numpy matrix."""
+        raw = self._db.get_all_chunk_embeddings()
+        if not raw:
+            self._embedding_matrix = np.empty((0, EMBEDDING_DIMENSIONS), dtype=np.float32)
+            self._embedding_norms = np.empty(0, dtype=np.float32)
+            self._chunk_session_ids = []
+            return
+
+        session_ids = []
+        # Deserialize all blobs into a contiguous float32 array
+        flat = bytearray()
+        for session_id, _chunk_id, blob in raw:
+            session_ids.append(session_id)
+            flat.extend(blob)
+
+        n = len(session_ids)
+        matrix = np.frombuffer(bytes(flat), dtype=np.float32).reshape(n, -1)
+
+        # Pre-compute norms for cosine similarity
+        norms = np.linalg.norm(matrix, axis=1)
+
+        self._embedding_matrix = matrix
+        self._embedding_norms = norms
+        self._chunk_session_ids = session_ids
+
+    @staticmethod
+    def _extract_tag_filters(query: str) -> tuple[str, list[str]]:
+        """Extract #tag:value patterns from query.
+
+        Returns (remaining_query, list_of_tags).
+        """
+        tags = re.findall(r"#tag:(\S+)", query)
+        remaining = re.sub(r"#tag:\S+", "", query).strip()
+        return remaining, tags
 
     def search(
         self,
@@ -38,14 +78,44 @@ class HybridSearch:
         semantic_weight: Optional[float] = None,
     ) -> list[SearchResult]:
         start_time = time.time()
+
+        remaining_query, tag_filters = self._extract_tag_filters(query)
+
+        # Resolve tag-filtered session IDs
+        tag_session_ids: Optional[set[str]] = None
+        if tag_filters:
+            sets = [set(self._db.get_sessions_by_tag(t)) for t in tag_filters]
+            tag_session_ids = sets[0]
+            for s in sets[1:]:
+                tag_session_ids &= s
+            if not tag_session_ids:
+                return []
+
+        # If query is only tag filters, return all matching sessions
+        if not remaining_query and tag_session_ids is not None:
+            results = [
+                SearchResult(session_id=sid, score=1.0)
+                for sid in list(tag_session_ids)[:limit]
+            ]
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            top_ids = [r.session_id for r in results[:10]]
+            self._db.log_semantic_search(query, len(results), top_ids, elapsed_ms)
+            return results
+
         fts_w = fts_weight if fts_weight is not None else self._fts_weight
         sem_w = semantic_weight if semantic_weight is not None else self._semantic_weight
 
-        fts_results = self._search_fts(query, limit=limit * 2)
-        semantic_results = self._search_semantic(query, limit=limit * 2)
+        search_query = remaining_query or query
+        fts_results = self._search_fts(search_query, limit=limit * 2)
+        semantic_results = self._search_semantic(search_query, limit=limit * 2)
 
         combined = self._combine_scores(fts_results, semantic_results, fts_w, sem_w)
         combined = [r for r in combined if r.score >= 0.2]
+
+        # Apply tag filter to results
+        if tag_session_ids is not None:
+            combined = [r for r in combined if r.session_id in tag_session_ids]
+
         combined.sort(key=lambda r: r.score, reverse=True)
         results = combined[:limit]
 
@@ -89,30 +159,39 @@ class HybridSearch:
         if query_embedding is None:
             return {}
 
-        if self._chunk_embeddings_cache is None:
-            self._chunk_embeddings_cache = self._db.get_all_chunk_embeddings()
+        if self._embedding_matrix is None:
+            self._load_embedding_cache()
 
-        if not self._chunk_embeddings_cache:
+        matrix = self._embedding_matrix
+        norms = self._embedding_norms
+        session_ids = self._chunk_session_ids
+
+        if matrix is None or norms is None or session_ids is None or len(session_ids) == 0:
             return {}
 
         MIN_COSINE = 0.35
 
-        session_scores: dict[str, list[float]] = defaultdict(list)
-        for session_id, _chunk_id, embedding_blob in self._chunk_embeddings_cache:
-            chunk_embedding = EmbeddingGenerator.deserialize_embedding(embedding_blob)
-            similarity = self._cosine_similarity(query_embedding, chunk_embedding)
-            session_scores[session_id].append(similarity)
-
-        aggregated: dict[str, float] = {}
-        for session_id, similarities in session_scores.items():
-            best = max(similarities)
-            if best >= MIN_COSINE:
-                aggregated[session_id] = best
-
-        if not aggregated:
+        # Vectorized cosine similarity: dot(query, matrix^T) / (||query|| * ||rows||)
+        query_vec = np.array(query_embedding, dtype=np.float32)
+        query_norm = np.linalg.norm(query_vec)
+        if query_norm == 0:
             return {}
 
-        sorted_sessions = sorted(aggregated.items(), key=lambda x: x[1], reverse=True)
+        dots = matrix @ query_vec
+        similarities = dots / (norms * query_norm)
+
+        # Aggregate: best similarity per session
+        session_best: dict[str, float] = {}
+        for i, sim in enumerate(similarities):
+            sid = session_ids[i]
+            if sim >= MIN_COSINE:
+                if sid not in session_best or sim > session_best[sid]:
+                    session_best[sid] = float(sim)
+
+        if not session_best:
+            return {}
+
+        sorted_sessions = sorted(session_best.items(), key=lambda x: x[1], reverse=True)
         top_sessions = dict(sorted_sessions[:limit])
 
         return self._normalize_scores(top_sessions)
@@ -153,12 +232,7 @@ class HybridSearch:
 
     @staticmethod
     def _normalize_scores(scores: dict[str, float]) -> dict[str, float]:
-        """Normalize scores to [FLOOR, 1.0].
-
-        Uses a floor of 0.5 so even the weakest result in a set retains
-        meaningful weight — two perfect FTS matches with similar BM25
-        scores shouldn't map to 1.0 and 0.0.
-        """
+        """Normalize scores to [FLOOR, 1.0]."""
         if not scores:
             return {}
 
@@ -172,22 +246,10 @@ class HybridSearch:
         FLOOR = 0.5
         return {k: FLOOR + (1.0 - FLOOR) * (v - min_val) / (max_val - min_val) for k, v in scores.items()}
 
-    @staticmethod
-    def _cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
-        if len(vec_a) != len(vec_b):
-            return 0.0
-
-        dot_product = sum(a * b for a, b in zip(vec_a, vec_b))
-        norm_a = math.sqrt(sum(a * a for a in vec_a))
-        norm_b = math.sqrt(sum(b * b for b in vec_b))
-
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-
-        return dot_product / (norm_a * norm_b)
-
     def invalidate_cache(self):
-        self._chunk_embeddings_cache = None
+        self._embedding_matrix = None
+        self._embedding_norms = None
+        self._chunk_session_ids = None
 
     @property
     def has_embeddings(self) -> bool:

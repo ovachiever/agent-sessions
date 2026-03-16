@@ -8,6 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Optional
 
+from ..annotations import get_all_annotation_files, load_annotations
 from ..models import Session
 from ..providers.base import SessionProvider
 from .chunker import SessionChunker
@@ -116,6 +117,8 @@ class SessionIndexer:
         except Exception as e:
             logger.warning(f"Failed to update project stats: {e}")
 
+        stats["annotations_synced"] = self._sync_annotations()
+
         stats["time_ms"] = int((time.time() - start_time) * 1000)
         logger.info(
             f"Full reindex complete: {stats['sessions_indexed']} sessions, "
@@ -211,6 +214,8 @@ class SessionIndexer:
                 continue
 
         self._update_all_project_stats(projects)
+
+        stats["annotations_synced"] = self._sync_annotations()
 
         stats["time_ms"] = int((time.time() - start_time) * 1000)
         logger.info(
@@ -513,3 +518,36 @@ class SessionIndexer:
                 common_tags=common_tags_list,
                 updated_at=current_time,
             )
+
+    def _sync_annotations(self) -> int:
+        """Sync annotation files from disk into the database.
+
+        Globs annotation JSON files, compares mtime against last sync,
+        and upserts changed annotations into the DB.
+        Returns count of sessions updated.
+        """
+        annotation_files = get_all_annotation_files()
+        if not annotation_files:
+            return 0
+
+        last_sync = self.db.get_index_meta("annotations_synced_at")
+        last_sync_time = float(last_sync) if last_sync else 0.0
+
+        updated = 0
+        for path in annotation_files:
+            try:
+                if path.stat().st_mtime <= last_sync_time:
+                    continue
+                session_id = path.stem
+                annotations = load_annotations(session_id)
+                if annotations:
+                    self.db.upsert_annotations(session_id, annotations)
+                    updated += 1
+            except (OSError, Exception) as e:
+                logger.warning(f"Failed to sync annotations for {path}: {e}")
+
+        if updated > 0:
+            self.db.set_index_meta("annotations_synced_at", str(time.time()))
+            logger.info(f"Synced annotations for {updated} sessions")
+
+        return updated

@@ -5,6 +5,7 @@ from typing import Optional
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import ScrollableContainer
+from textual.binding import Binding
 from textual.widgets import ListItem, Static, TextArea
 
 from ..models import Session
@@ -26,6 +27,13 @@ class TranscriptArea(TextArea):
     Modifier combos (Ctrl+A, Shift+arrows) are still handled by TextArea for
     select-all and extend-selection.
     """
+
+    BINDINGS = [
+        Binding("c", "app.copy_transcript", "Copy All"),
+        Binding("y", "app.copy_transcript", "Copy All", show=False),
+        Binding("a", "app.select_all_transcript", "Select All", show=False),
+        Binding("escape", "app.back_to_list", "Back"),
+    ]
 
     async def _on_key(self, event) -> None:
         if self.read_only and event.is_printable:
@@ -296,6 +304,31 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         text.append(f"{session.model}\n", style="yellow")
         text.append("Session ID: ", style="bold")
         text.append(f"{session.id}\n", style="dim")
+
+        # Annotations
+        from ..index.database import SessionDatabase
+        annotations = SessionDatabase().get_annotations(session.id)
+        if annotations:
+            text.append("\n")
+            text.append("┌─ Annotations ─────────────────────────\n", style="bold yellow")
+            tags = [a for a in annotations if a["type"] == "tag"]
+            notes = [a for a in annotations if a["type"] == "note"]
+            if tags:
+                text.append("│ ", style="yellow")
+                text.append("Tags: ", style="bold")
+                for i, tag in enumerate(tags):
+                    if i > 0:
+                        text.append("  ", style="dim")
+                    text.append(f"[{tag['value']}]", style="bold cyan")
+                text.append("\n")
+            for note in notes:
+                text.append("│ ", style="yellow")
+                ts_display = note.get("ts", "")[:16].replace("T", " ") if note.get("ts") else ""
+                if ts_display:
+                    text.append(f"{ts_display} ", style="dim")
+                text.append(f"{note['value']}\n", style="white")
+            text.append("└───────────────────────────────────────\n", style="yellow")
+
         text.append("\n")
 
         # Original prompt
@@ -378,21 +411,16 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         """Finish the transcript — populate TextArea with full content."""
         if self._in_transcript_mode and self._transcript_area:
             self._transcript_buf += "\n━━━ End of Transcript ━━━\n"
-            self._transcript_buf += "Ctrl+A select all | a/y copy all | c copy visible"
+            self._transcript_buf += "c copy all | Escape back"
             self._transcript_area.text = self._transcript_buf
             self._transcript_area.move_cursor((0, 0))
         else:
             text = Text()
             text.append("━━━ End of Transcript ━━━\n", style="bold cyan")
-            text.append("Press ", style="dim")
-            text.append("Shift+Tab", style="bold")
-            text.append(" to return to list | ", style="dim")
-            text.append("a", style="bold")
-            text.append("/", style="dim")
-            text.append("y", style="bold")
-            text.append(" copy all | ", style="dim")
             text.append("c", style="bold")
-            text.append(" copy visible message", style="dim")
+            text.append(" copy all | ", style="dim")
+            text.append("Escape", style="bold")
+            text.append(" back", style="dim")
             self.write(text)
 
     @staticmethod

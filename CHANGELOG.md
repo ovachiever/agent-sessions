@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.0 (2026-03-16)
+
+### Features
+
+- **Session annotations** — tag and annotate sessions with `#tag:name` and `#note text` syntax
+- Claude Code `UserPromptSubmit` hook captures annotations during live sessions — pure annotation prompts are blocked from reaching the model
+- Retroactive tagging from TUI via `Ctrl+T` (tag) and `Ctrl+N` (note)
+- Annotations display in session detail panel with tags as `[name]` badges and timestamped notes
+- `#tag:name` search modifier filters results to sessions with matching tags
+- Annotation files stored at `~/.local/share/agent-sessions/annotations/` (user data, not cache)
+- Schema v3 migration adds annotations table with indexes
+
+### Improvements
+
+- Annotation sync integrated into both full reindex and incremental update pipelines
+- Hybrid search supports combined tag filters and text queries
+
 ## 0.6.1 (2026-02-18)
 
 ### Fixes

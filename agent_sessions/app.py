@@ -3,6 +3,7 @@
 import logging
 import os
 import subprocess
+from datetime import datetime
 from queue import Queue
 from typing import Optional
 
@@ -79,11 +80,14 @@ class AgentSessionsBrowser(App):
         Binding("escape", "back_to_list", "Back"),
         Binding("slash", "activate_search", "Search"),
         Binding("f", "cycle_filter", "Filter"),
+        Binding("s", "cycle_search_sort", "Sort"),
         Binding("i", "reindex", "reIndex"),
         Binding("t", "show_all_messages", "Transcript"),
         Binding("y", "copy_transcript", "Copy All", show=False),
         Binding("a", "select_all_transcript", "Select All", show=False),
         Binding("c", "copy_visible_message", "Copy Msg", show=False),
+        Binding("ctrl+t", "add_tag", "Tag"),
+        Binding("ctrl+n", "add_note", "Note"),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("down", "cursor_down", "Down", show=False),
@@ -93,6 +97,12 @@ class AgentSessionsBrowser(App):
         Binding("pageup", "cursor_page_up", "PgUp", show=False, priority=True),
         Binding("pagedown", "cursor_page_down", "PgDn", show=False, priority=True),
     ]
+
+    def check_action(self, action: str, parameters: tuple) -> bool | None:
+        """Conditionally show/hide bindings based on app state."""
+        if action == "cycle_search_sort":
+            return self._search_mode if hasattr(self, "_search_mode") else False
+        return True
 
     def __init__(self, harness_filter: str | None = None, project_filter: str | None = None):
         super().__init__()
@@ -120,6 +130,10 @@ class AgentSessionsBrowser(App):
         self._search_scores: dict[str, float] = {}
         self._filtered_parents: list[Session] = []
         self._search_matching_children: list[Session] = []
+        self._search_sort_order: str = "relevance"  # "relevance" | "newest" | "oldest"
+
+        # Annotation input mode
+        self._annotation_mode: str | None = None
 
         # Summary generation state
         self._summary_queue: Queue = Queue()
@@ -675,6 +689,39 @@ class AgentSessionsBrowser(App):
         except Exception:
             self.notify("Failed to copy to clipboard", severity="error")
 
+    def _focus_active_list(self):
+        """Refocus the last active list pane."""
+        if self.focus_pane == "subagent" and self.current_children:
+            self.query_one("#subagent-list", ListView).focus()
+        else:
+            self.focus_pane = "parent"
+            self.query_one("#parent-list", ListView).focus()
+
+    def action_add_tag(self):
+        """Prompt user to add a tag to the selected session."""
+        if not self.selected_session:
+            self.notify("No session selected", severity="warning")
+            return
+        # Show input for tag
+        self._annotation_mode = "tag"
+        search_input = self.query_one("#search-input", Input)
+        search_input.placeholder = "Enter tag name (e.g. breakthrough)..."
+        search_input.value = ""
+        search_input.add_class("visible")
+        search_input.focus()
+
+    def action_add_note(self):
+        """Prompt user to add a note to the selected session."""
+        if not self.selected_session:
+            self.notify("No session selected", severity="warning")
+            return
+        self._annotation_mode = "note"
+        search_input = self.query_one("#search-input", Input)
+        search_input.placeholder = "Enter note text..."
+        search_input.value = ""
+        search_input.add_class("visible")
+        search_input.focus()
+
     def action_reindex(self):
         """Reindex sessions and refresh the list."""
         self._run_incremental_index()
@@ -803,6 +850,13 @@ class AgentSessionsBrowser(App):
         """Go back to parent list (Escape)."""
         search_input = self.query_one("#search-input", Input)
         if search_input.has_focus:
+            if hasattr(self, '_annotation_mode') and self._annotation_mode:
+                self._annotation_mode = None
+                search_input.placeholder = "Search sessions... (Enter to search, Escape to cancel)"
+                search_input.value = ""
+                search_input.remove_class("visible")
+                self._focus_active_list()
+                return
             self._cancel_search()
             return
 
@@ -842,6 +896,7 @@ class AgentSessionsBrowser(App):
         self._search_scores = {}
         self._filtered_parents = []
         self._search_matching_children = []
+        self._search_sort_order = "relevance"
 
         search_input = self.query_one("#search-input", Input)
         search_input.remove_class("visible")
@@ -877,8 +932,23 @@ class AgentSessionsBrowser(App):
         self._search_mode = True
         self._search_query = query.strip()
 
-        # Use hybrid search (FTS + semantic)
-        results = self.search_engine.search(self._search_query, limit=50)
+        search_input = self.query_one("#search-input", Input)
+        search_input.remove_class("visible")
+
+        self.query_one("#parent-header", Static).update(
+            f"[bold]Searching[/] [dim]\"{self._search_query}\"...[/]"
+        )
+
+        self._run_search_in_background(self._search_query)
+
+    @work(thread=True)
+    def _run_search_in_background(self, query: str):
+        """Run hybrid search (FTS + semantic) in a worker thread."""
+        results = self.search_engine.search(query, limit=50)
+        self.call_from_thread(self._apply_search_results, results)
+
+    def _apply_search_results(self, results):
+        """Apply search results to the UI (called on main thread)."""
         self._search_scores = {}
         for result in results:
             self._search_scores[result.session_id] = result.score
@@ -898,37 +968,107 @@ class AgentSessionsBrowser(App):
 
         parents_by_id = {p.id: p for p in self.parent_sessions}
         self._filtered_parents = [parents_by_id[pid] for pid in parent_scores]
-        self._filtered_parents.sort(key=lambda p: parent_scores.get(p.id, 0), reverse=True)
 
         # Store parent-level scores for display
         self._search_scores.update(parent_scores)
 
-        search_input = self.query_one("#search-input", Input)
-        search_input.remove_class("visible")
+        self._search_sort_order = "relevance"
+
+        self._sort_and_display_results()
+
+        parent_list = self.query_one("#parent-list", ListView)
+        parent_list.focus()
+        self.focus_pane = "parent"
+
+    _SORT_CYCLE = ["relevance", "newest", "oldest"]
+    _SORT_LABELS = {"relevance": "by relevance", "newest": "newest first", "oldest": "oldest first"}
+
+    def _sort_and_display_results(self):
+        """Sort _filtered_parents per current order and repopulate the list."""
+        order = self._search_sort_order
+        if order == "relevance":
+            self._filtered_parents.sort(
+                key=lambda p: self._search_scores.get(p.id, 0), reverse=True
+            )
+        elif order == "newest":
+            self._filtered_parents.sort(
+                key=lambda p: p.modified_time or p.created_time or datetime.min, reverse=True
+            )
+        else:  # oldest
+            self._filtered_parents.sort(
+                key=lambda p: p.modified_time or p.created_time or datetime.min
+            )
 
         total_matches = len(self._search_scores)
+        sort_label = self._SORT_LABELS[order]
         self.query_one("#parent-header", Static).update(
-            f"[bold yellow]Search:[/] [white]{query}[/] [dim]({len(self._filtered_parents)} sessions, {total_matches} matches)[/]"
+            f"[bold yellow]Search:[/] [white]{self._search_query}[/] "
+            f"[dim]({len(self._filtered_parents)} sessions, {total_matches} matches · {sort_label})[/]"
         )
 
         parent_list = self.query_one("#parent-list", ListView)
         parent_list.clear()
-        # Batch mount for performance (search results typically smaller, but be safe)
         items = [
             ParentSessionItem(session)
-            for session in self._filtered_parents[:500]  # Limit display, not search
+            for session in self._filtered_parents[:500]
         ]
         parent_list.mount(*items)
 
         if self._filtered_parents:
             parent_list.index = 0
 
-        parent_list.focus()
-        self.focus_pane = "parent"
+    def action_cycle_search_sort(self):
+        """Cycle search result sort order: relevance → newest → oldest."""
+        if not self._search_mode:
+            return
+        idx = self._SORT_CYCLE.index(self._search_sort_order)
+        self._search_sort_order = self._SORT_CYCLE[(idx + 1) % len(self._SORT_CYCLE)]
+        self._sort_and_display_results()
 
     @on(Input.Submitted, "#search-input")
     def on_search_submitted(self, event: Input.Submitted):
         """Handle search input submission."""
+        search_input = self.query_one("#search-input", Input)
+
+        # Check for annotation mode first
+        if hasattr(self, '_annotation_mode') and self._annotation_mode:
+            mode = self._annotation_mode
+            self._annotation_mode = None
+            value = event.value.strip()
+            if not value:
+                self.notify("Empty input, cancelled", severity="warning")
+                search_input.placeholder = "Search sessions... (Enter to search, Escape to cancel)"
+                search_input.value = ""
+                search_input.remove_class("visible")
+                self._focus_active_list()
+                return
+
+            from .annotations import save_annotation, load_annotations
+            session = self.selected_session
+            if not session:
+                self.notify("No session selected", severity="warning")
+                search_input.placeholder = "Search sessions... (Enter to search, Escape to cancel)"
+                search_input.value = ""
+                search_input.remove_class("visible")
+                self._focus_active_list()
+                return
+
+            save_annotation(session.id, mode, value, source="manual")
+            self.db.upsert_annotations(session.id, load_annotations(session.id))
+
+            self.notify(f"{'Tag' if mode == 'tag' else 'Note'} saved: {value[:50]}")
+            search_input.placeholder = "Search sessions... (Enter to search, Escape to cancel)"
+            search_input.value = ""
+            search_input.remove_class("visible")
+            self._focus_active_list()
+
+            # Refresh detail panel to show new annotation
+            detail = self.query_one("#detail-panel", SessionDetailPanel)
+            if detail.session and detail.session.id == session.id:
+                children = self._get_related_children(session)
+                detail.show_session(session, child_count=len(children))
+            return
+
         self._execute_search(event.value)
 
     def action_copy_command(self):

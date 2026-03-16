@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DEFAULT_DB_PATH = Path.home() / ".cache" / "agent-sessions" / "sessions.db"
 
 
@@ -105,7 +105,26 @@ class SessionDatabase:
             if current_version < 2:
                 self._migrate_v1_to_v2(conn)
                 self._set_schema_version(conn, 2)
+            if current_version < 3:
+                self._migrate_v2_to_v3(conn)
+                self._set_schema_version(conn, 3)
         self._initialized = True
+
+    def _migrate_v2_to_v3(self, conn: sqlite3.Connection):
+        """Add annotations table with indexes."""
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS annotations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                timestamp TEXT,
+                type TEXT NOT NULL,
+                value TEXT NOT NULL,
+                source TEXT DEFAULT 'hook',
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_annotations_session ON annotations(session_id);
+            CREATE INDEX IF NOT EXISTS idx_annotations_type_value ON annotations(type, value);
+        """)
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection):
         """Add last_response_preview column and rebuild FTS indexes."""
@@ -243,6 +262,19 @@ class SessionDatabase:
                 created_at INTEGER,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS annotations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                timestamp TEXT,
+                type TEXT NOT NULL,
+                value TEXT NOT NULL,
+                source TEXT DEFAULT 'hook',
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_annotations_session ON annotations(session_id);
+            CREATE INDEX IF NOT EXISTS idx_annotations_type_value ON annotations(type, value);
         """
 
     def _get_fts_sql(self) -> str:
@@ -760,6 +792,112 @@ class SessionDatabase:
         conn = self._get_connection()
         row = conn.execute("SELECT COUNT(*) as c FROM chunks").fetchone()
         return row["c"] if row else 0
+
+    def upsert_annotations(self, session_id: str, annotations: list[dict]) -> None:
+        """Insert or replace annotations for a session.
+
+        Each dict has: ts, type, value, source.
+        Deletes existing annotations for the session first, then bulk-inserts.
+        """
+        if not annotations:
+            return
+        self._ensure_schema()
+        conn = self._get_connection()
+        conn.execute("DELETE FROM annotations WHERE session_id = ?", (session_id,))
+        conn.executemany(
+            """
+            INSERT INTO annotations (session_id, timestamp, type, value, source)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    session_id,
+                    a.get("ts"),
+                    a["type"],
+                    a["value"],
+                    a.get("source", "hook"),
+                )
+                for a in annotations
+            ],
+        )
+
+    def get_annotations(self, session_id: str) -> list[dict]:
+        """Get all annotations for a session, ordered by timestamp."""
+        self._ensure_schema()
+        conn = self._get_connection()
+        rows = conn.execute(
+            """
+            SELECT session_id, timestamp, type, value, source
+            FROM annotations
+            WHERE session_id = ?
+            ORDER BY timestamp
+            """,
+            (session_id,),
+        ).fetchall()
+        return [
+            {
+                "session_id": row["session_id"],
+                "ts": row["timestamp"],
+                "type": row["type"],
+                "value": row["value"],
+                "source": row["source"],
+            }
+            for row in rows
+        ]
+
+    def get_sessions_by_tag(self, tag: str) -> list[str]:
+        """Return session IDs that have a specific tag annotation."""
+        self._ensure_schema()
+        conn = self._get_connection()
+        rows = conn.execute(
+            """
+            SELECT DISTINCT session_id FROM annotations
+            WHERE type = 'tag' AND value = ?
+            """,
+            (tag,),
+        ).fetchall()
+        return [row["session_id"] for row in rows]
+
+    def search_annotations(self, query: str) -> list[dict]:
+        """Search annotation values (notes) with LIKE matching.
+
+        Returns dicts with session_id, type, value, timestamp.
+        """
+        self._ensure_schema()
+        conn = self._get_connection()
+        rows = conn.execute(
+            """
+            SELECT session_id, type, value, timestamp
+            FROM annotations
+            WHERE value LIKE ?
+            ORDER BY timestamp DESC
+            """,
+            (f"%{query}%",),
+        ).fetchall()
+        return [
+            {
+                "session_id": row["session_id"],
+                "type": row["type"],
+                "value": row["value"],
+                "ts": row["timestamp"],
+            }
+            for row in rows
+        ]
+
+    def get_all_tags(self) -> list[tuple[str, int]]:
+        """Return all unique tags with their usage count, ordered by count desc."""
+        self._ensure_schema()
+        conn = self._get_connection()
+        rows = conn.execute(
+            """
+            SELECT value, COUNT(*) as cnt
+            FROM annotations
+            WHERE type = 'tag'
+            GROUP BY value
+            ORDER BY cnt DESC
+            """
+        ).fetchall()
+        return [(row["value"], row["cnt"]) for row in rows]
 
     def _row_to_session(self, row: sqlite3.Row) -> SessionRow:
         # Handle both v1 (no last_response_preview) and v2 schemas

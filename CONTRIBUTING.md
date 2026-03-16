@@ -51,6 +51,15 @@ class MyProvider(SessionProvider):
 3. Add tests in `tests/`
 4. Submit a PR
 
+## Annotations
+
+Annotations (tags and notes) can be attached to any session. Two paths:
+
+- **Hook**: `~/.claude/hooks/annotate.py` captures `#tag:name` and `#note text` from Claude Code prompts
+- **TUI**: `Ctrl+T` / `Ctrl+N` in the browser for retroactive tagging
+
+Annotation files live at `~/.local/share/agent-sessions/annotations/{session_id}.json` and sync into the SQLite database during indexing.
+
 ## Code Style
 
 - Follow existing patterns and conventions

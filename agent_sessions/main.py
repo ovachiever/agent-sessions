@@ -28,8 +28,10 @@ def cmd_browse(args):
             os.chdir(project_path)
             print(f"\n[cd {project_path}]")
         print(f"[Resuming session...]\n{cmd}\n")
-        parts = cmd.split()
-        if parts:
+        if cmd:
+            # Use non-interactive shell — claude-1m etc. are scripts on PATH,
+            # not aliases. Avoid -i to prevent .zshrc from overriding cwd.
+            parts = cmd.split()
             os.execvp(parts[0], parts)
 
 

@@ -13,6 +13,21 @@ from .base import SessionProvider, detect_automated_session, find_first_real_pro
 
 
 SESSIONS_DIR = Path.home() / ".claude" / "projects"
+
+
+def _all_claude_sessions_dirs() -> list[Path]:
+    """Return all Claude Code session directories.
+
+    Scans ~/.claude/projects (default) plus any ~/.claude-*/projects
+    directories created by alternate config aliases (e.g. claude-1m
+    uses CLAUDE_CONFIG_DIR=~/.claude-1m).
+    """
+    dirs = [SESSIONS_DIR]
+    home = Path.home()
+    for d in home.glob(".claude-*/projects"):
+        if d.is_dir() and d not in dirs:
+            dirs.append(d)
+    return dirs
 SUBAGENT_TITLE_PREFIX = "# Task Tool Invocation"
 
 
@@ -127,17 +142,21 @@ class ClaudeCodeProvider(SessionProvider):
         return SESSIONS_DIR
 
     def discover_session_files(self) -> list[Path]:
-        """Discover all JSONL session files."""
-        files = []
-        sessions_dir = self.get_sessions_dir()
-        if not sessions_dir.exists():
-            return files
+        """Discover all JSONL session files.
 
-        for project_dir in sessions_dir.iterdir():
-            if not project_dir.is_dir():
+        Scans the default ~/.claude/projects and any alternate config
+        directories (~/.claude-*/projects) so sessions from aliases
+        like claude-1m are included.
+        """
+        files = []
+        for sessions_dir in _all_claude_sessions_dirs():
+            if not sessions_dir.exists():
                 continue
-            for jsonl_file in project_dir.glob("*.jsonl"):
-                files.append(jsonl_file)
+            for project_dir in sessions_dir.iterdir():
+                if not project_dir.is_dir():
+                    continue
+                for jsonl_file in project_dir.glob("*.jsonl"):
+                    files.append(jsonl_file)
 
         return files
 
@@ -359,6 +378,26 @@ class ClaudeCodeProvider(SessionProvider):
         )
 
     def get_resume_command(self, session: Session) -> str:
+        # If session lives in an alternate config dir (e.g. .claude-1m),
+        # look for a .resume-cmd file that stores the launch command,
+        # then try the shell alias claude-<suffix>, then fall back to
+        # the env var prefix approach.
+        raw = session.raw_path
+        for part in raw.parts:
+            if part.startswith(".claude-") and part != ".claude":
+                config_dir = Path.home() / part
+                suffix = part[len(".claude-"):]  # e.g. "1m"
+
+                # Priority 1: explicit resume command file in config dir
+                resume_cmd_file = config_dir / ".resume-cmd"
+                if resume_cmd_file.exists():
+                    prefix = resume_cmd_file.read_text().strip()
+                    return f"{prefix} --resume {session.id}"
+
+                # Priority 2: matching alias (claude-<suffix>)
+                # Aliases aren't on PATH but resolve via interactive shell,
+                # which cmd_browse() uses (shell -ic). Safe to emit.
+                return f"claude-{suffix} --resume {session.id}"
         return f"claude --resume {session.id}"
 
     def get_task_invocations(self, session: Session) -> list[dict]:
