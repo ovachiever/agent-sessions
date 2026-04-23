@@ -10,6 +10,7 @@ from agent_sessions.models import Session
 from agent_sessions.providers.base import SessionProvider
 from agent_sessions.providers.droid import DroidProvider
 from agent_sessions.providers.claude_code import ClaudeCodeProvider
+from agent_sessions.providers.codex import CodexProvider
 
 
 class TestDroidProvider:
@@ -135,6 +136,85 @@ class TestClaudeCodeProvider:
         assert session.model == "claude-opus-4-5-20251101"
 
 
+class TestCodexProvider:
+    """Tests for Codex provider."""
+
+    @pytest.fixture
+    def codex_provider(self):
+        return CodexProvider()
+
+    def test_provider_attributes(self, codex_provider):
+        """Test provider has required attributes."""
+        assert codex_provider.name == "codex"
+        assert codex_provider.display_name == "Codex"
+        assert codex_provider.icon == "✦"
+        assert codex_provider.color == "yellow"
+
+    def test_get_sessions_dir(self, codex_provider):
+        """Test sessions directory path."""
+        sessions_dir = codex_provider.get_sessions_dir()
+        assert sessions_dir == Path.home() / ".codex" / "sessions"
+
+    def test_get_resume_command(self, codex_provider):
+        """Test resume command generation."""
+        session = Session(
+            id="019da1da-2983-7da0-bf88-7bcdb7a230ca",
+            harness="codex",
+            raw_path=Path("/tmp/test.jsonl"),
+            project_path=Path("/home/user/project"),
+            project_name="project",
+        )
+        cmd = codex_provider.get_resume_command(session)
+        assert cmd == "codex resume 019da1da-2983-7da0-bf88-7bcdb7a230ca"
+
+    def test_parse_parent_session_fixture(self, codex_provider):
+        """Test parsing a normal parent Codex session."""
+        fixture_path = Path(__file__).parent / "fixtures" / "codex_parent_session.jsonl"
+
+        session = codex_provider.parse_session(fixture_path)
+
+        assert session is not None
+        assert session.id == "019da1da-2983-7da0-bf88-7bcdb7a230ca"
+        assert session.harness == "codex"
+        assert session.project_path == Path("/Users/tester/project")
+        assert session.project_name == "project"
+        assert session.is_child is False
+        assert session.parent_id is None
+        assert "Codex provider support" in session.first_prompt
+        assert session.model == "gpt-5.4"
+        assert session.tool_calls == ["exec_command"]
+
+    def test_parse_child_session_fixture(self, codex_provider):
+        """Test parsing an explicit Codex sub-agent session."""
+        fixture_path = Path(__file__).parent / "fixtures" / "codex_child_session.jsonl"
+
+        session = codex_provider.parse_session(fixture_path)
+
+        assert session is not None
+        assert session.id == "019d791f-abbd-7980-b012-cf9d5182e597"
+        assert session.harness == "codex"
+        assert session.project_path == Path("/Users/tester/agent-do")
+        assert session.project_name == "agent-do"
+        assert session.is_child is True
+        assert session.parent_id == "019d7912-5a47-7c01-b9ae-90ac2060a27e"
+        assert session.child_type == "worker"
+        assert session.model == "gpt-5.2-codex"
+
+    def test_get_session_messages(self, codex_provider):
+        """Test conversational message extraction from event records."""
+        fixture_path = Path(__file__).parent / "fixtures" / "codex_parent_session.jsonl"
+        session = codex_provider.parse_session(fixture_path)
+
+        assert session is not None
+        messages = codex_provider.get_session_messages(session)
+
+        assert len(messages) == 2
+        assert messages[0]["role"] == "user"
+        assert "Codex provider support" in messages[0]["content"]
+        assert messages[1]["role"] == "assistant"
+        assert "provider registry" in messages[1]["content"]
+
+
 class TestProviderRegistry:
     """Tests for provider registry."""
 
@@ -151,11 +231,12 @@ class TestProviderRegistry:
         from agent_sessions.providers import get_all_providers
 
         providers = get_all_providers()
-        assert len(providers) >= 2  # At least Droid and Claude Code
+        assert len(providers) >= 3  # At least Droid, Claude Code, and Codex
 
         names = [p.name for p in providers]
         assert "droid" in names
         assert "claude-code" in names
+        assert "codex" in names
 
     def test_get_provider_by_name(self):
         """Test getting provider by name."""
@@ -168,6 +249,10 @@ class TestProviderRegistry:
         claude = get_provider("claude-code")
         assert claude is not None
         assert claude.name == "claude-code"
+
+        codex = get_provider("codex")
+        assert codex is not None
+        assert codex.name == "codex"
 
         unknown = get_provider("unknown-provider")
         assert unknown is None

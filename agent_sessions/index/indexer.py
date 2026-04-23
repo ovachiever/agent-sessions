@@ -78,6 +78,7 @@ class SessionIndexer:
         }
         
         projects: dict[str, dict] = defaultdict(_create_project_entry)
+        pending_parent_links: dict[str, tuple[str, str]] = {}
 
         all_session_paths = []
         for provider in self.providers:
@@ -100,6 +101,9 @@ class SessionIndexer:
                     stats["messages_indexed"] += result["messages"]
                     stats["chunks_created"] += result["chunks"]
 
+                    if session.parent_id:
+                        pending_parent_links[session.id] = (session.parent_id, session.child_type)
+
                     project_key = str(session.project_path) if session.project_path else "unknown"
                     projects[project_key]["sessions"].append(session)
                     projects[project_key]["messages"] += result["messages"]
@@ -111,6 +115,8 @@ class SessionIndexer:
             except Exception as e:
                 logger.warning(f"Failed to index {path}: {e}")
                 continue
+
+        self._apply_parent_links(pending_parent_links)
 
         try:
             self._update_all_project_stats(projects)
@@ -159,6 +165,7 @@ class SessionIndexer:
                 indexed_sessions[row.id] = (row.file_mtime, row.indexed_at)
 
         projects: dict[str, dict] = defaultdict(_create_project_entry)
+        pending_parent_links: dict[str, tuple[str, str]] = {}
 
         sessions_to_index = []
 
@@ -170,7 +177,11 @@ class SessionIndexer:
             if age_cutoff and not provider.fast_discovery:
                 continue
 
-            for path in provider.discover_session_files():
+            provider_paths = provider.discover_session_files()
+            indexed_count = self.db.count_sessions(provider.name)
+            provider_has_backlog = len(provider_paths) > indexed_count
+
+            for path in provider_paths:
                 session_id = path.stem
                 
                 file_mtime = self._get_session_mtime(provider, path, session_id)
@@ -179,7 +190,11 @@ class SessionIndexer:
 
                 needs_index = False
                 if session_id not in indexed_sessions:
-                    if age_cutoff and file_mtime < age_cutoff:
+                    # If a provider has more files on disk than rows in the DB,
+                    # it likely means the provider was added after the initial
+                    # index existed. Backfill all missing sessions once instead
+                    # of only scanning the recent age window.
+                    if age_cutoff and not provider_has_backlog and file_mtime < age_cutoff:
                         continue
                     needs_index = True
                 else:
@@ -204,6 +219,9 @@ class SessionIndexer:
                     stats["messages_indexed"] += result["messages"]
                     stats["chunks_created"] += result["chunks"]
 
+                    if session.parent_id:
+                        pending_parent_links[session.id] = (session.parent_id, session.child_type)
+
                     project_key = str(session.project_path) if session.project_path else "unknown"
                     projects[project_key]["sessions"].append(session)
                     projects[project_key]["messages"] += result["messages"]
@@ -213,6 +231,7 @@ class SessionIndexer:
                 logger.warning(f"Failed to index {path}: {e}")
                 continue
 
+        self._apply_parent_links(pending_parent_links)
         self._update_all_project_stats(projects)
 
         stats["annotations_synced"] = self._sync_annotations()
@@ -448,6 +467,15 @@ class SessionIndexer:
         except OSError:
             pass
         return None
+
+    def _apply_parent_links(self, parent_links: dict[str, tuple[str, str]]) -> None:
+        """Backfill parent IDs after indexing so ordering does not matter."""
+        for session_id, (parent_id, child_type) in parent_links.items():
+            if not parent_id:
+                continue
+            if not self.db.get_session(parent_id):
+                continue
+            self.db.set_session_parent(session_id, parent_id, child_type or None)
 
     def _opencode_has_new_messages(self, session_id: str, indexed_at: int) -> bool:
         try:

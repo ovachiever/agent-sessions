@@ -448,6 +448,19 @@ class SessionDatabase:
             ],
         )
 
+    def set_session_parent(self, session_id: str, parent_id: str, child_type: Optional[str] = None) -> None:
+        """Backfill an explicit parent relationship after both rows exist."""
+        self._ensure_schema()
+        conn = self._get_connection()
+        conn.execute(
+            """
+            UPDATE sessions
+            SET parent_id = ?, child_type = COALESCE(?, child_type), is_child = 1
+            WHERE id = ?
+            """,
+            (parent_id, child_type, session_id),
+        )
+
     def delete_session(self, session_id: str) -> None:
         self._ensure_schema()
         conn = self._get_connection()

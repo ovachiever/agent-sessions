@@ -1,0 +1,5 @@
+{"timestamp":"2026-04-18T18:29:01.486Z","type":"session_meta","payload":{"id":"019da1da-2983-7da0-bf88-7bcdb7a230ca","timestamp":"2026-04-18T18:28:42.502Z","cwd":"/Users/tester/project","originator":"codex-tui","cli_version":"0.120.0","source":"cli","model_provider":"openai"}}
+{"timestamp":"2026-04-18T18:29:01.486Z","type":"turn_context","payload":{"turn_id":"turn_1","cwd":"/Users/tester/project","model":"gpt-5.4"}}
+{"timestamp":"2026-04-18T18:29:02.000Z","type":"event_msg","payload":{"type":"user_message","text":"Add Codex provider support to this project"}}
+{"timestamp":"2026-04-18T18:29:05.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"rg --files\"}"}}
+{"timestamp":"2026-04-18T18:29:06.000Z","type":"event_msg","payload":{"type":"agent_message","text":"I'm going to inspect the provider registry and indexing flow first."}}

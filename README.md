@@ -24,9 +24,10 @@ If you use more than one AI coding assistant, your conversations are scattered a
 | Provider | Status | Sessions Location |
 |----------|--------|-------------------|
 | **Claude Code** | ✅ | `~/.claude/projects/` |
+| **Codex** | ✅ | `~/.codex/sessions/` |
 | **FactoryAI Droid** | ✅ | `~/.factory/sessions/` |
-| **OpenCode** | ✅ | `~/.local/share/opencode/` |
 | **Cursor** | ✅ | `~/Library/Application Support/Cursor/` |
+| **OpenCode** | ✅ | `~/.local/share/opencode/` |
 | Windsurf | planned | |
 | Aider | planned | |
 | Amp | planned | |
@@ -117,7 +118,7 @@ The hook is installed at `~/.claude/hooks/annotate.py` and registered in `~/.cla
 
 ## Features
 
-- **Multi-provider** — browse Droid, Claude Code, Cursor, and OpenCode sessions in one place
+- **Multi-provider** — browse Codex, Droid, Claude Code, Cursor, and OpenCode sessions in one place
 - **Split-pane UI** — parent sessions on top, linked sub-agents below
 - **Full-text search** — FTS5-indexed across all messages, with optional hybrid semantic search
 - **Session annotations** — tag and annotate sessions inline or retroactively; searchable via `#tag:` syntax

@@ -123,6 +123,9 @@ class AgentSessionsBrowser(App):
         self.focus_pane = "parent"
         self._last_left_pane = "parent"
         self._children_cache: dict[str, list[Session]] = {}
+        self._children_by_parent_id: dict[str, list[Session]] = {}
+        self._children_by_key: dict[tuple[str, str], list[Session]] = {}
+        self._child_parent_by_id: dict[str, str] = {}
 
         # Search state
         self._search_mode = False
@@ -337,8 +340,25 @@ class AgentSessionsBrowser(App):
         self.parent_sessions = [s for s in filtered if not s.is_child]
         self.child_sessions = [s for s in filtered if s.is_child]
 
-        # Clear children cache when filter changes
+        # Rebuild child indexes and clear per-parent caches when filter changes.
         self._children_cache = {}
+        self._children_by_parent_id = {}
+        self._children_by_key = {}
+        self._child_parent_by_id = {}
+
+        for child in self.child_sessions:
+            if child.parent_id:
+                self._children_by_parent_id.setdefault(child.parent_id, []).append(child)
+                self._child_parent_by_id[child.id] = child.parent_id
+
+            key = (child.harness, str(child.project_path))
+            self._children_by_key.setdefault(key, []).append(child)
+
+        for children in self._children_by_parent_id.values():
+            children.sort(key=lambda s: s.created_time or s.modified_time or datetime.min)
+
+        for children in self._children_by_key.values():
+            children.sort(key=lambda s: s.created_time or s.modified_time or datetime.min)
 
     def _populate_parent_list(self):
         """Populate the parent list with sessions."""
@@ -363,20 +383,13 @@ class AgentSessionsBrowser(App):
     def _compute_child_counts(self, parents: list[Session]) -> dict[str, int]:
         """Pre-compute child counts for a list of parent sessions.
 
-        Uses fast heuristic matching by project_path and time proximity.
+        Prefer explicit parent_id links, then fall back to fast heuristic
+        matching by project_path and time proximity.
         Returns dict mapping parent session ID to child count.
         """
-        from datetime import timedelta
+        from datetime import datetime, timedelta
 
         counts: dict[str, int] = {}
-
-        # Group children by (harness, project_path) for faster lookup
-        children_by_key: dict[tuple[str, str], list[Session]] = {}
-        for child in self.child_sessions:
-            key = (child.harness, str(child.project_path))
-            if key not in children_by_key:
-                children_by_key[key] = []
-            children_by_key[key].append(child)
 
         for parent in parents:
             if parent.is_child or not parent.modified_time:
@@ -388,9 +401,15 @@ class AgentSessionsBrowser(App):
                 counts[parent.id] = len(self._children_cache[parent.id])
                 continue
 
+            explicit_children = self._children_by_parent_id.get(parent.id)
+            if explicit_children:
+                self._children_cache[parent.id] = explicit_children
+                counts[parent.id] = len(explicit_children)
+                continue
+
             # Look up children by same harness and project
             key = (parent.harness, str(parent.project_path))
-            potential_children = children_by_key.get(key, [])
+            potential_children = self._children_by_key.get(key, [])
 
             if not potential_children:
                 counts[parent.id] = 0
@@ -419,11 +438,16 @@ class AgentSessionsBrowser(App):
     def _get_related_children(self, parent: Session) -> list[Session]:
         """Get related child sessions using fast heuristic matching.
 
-        Matches children by project_path and time proximity.
+        Prefer explicit parent_id links, then match by project_path and time proximity.
         Time window varies by harness (OpenCode uses 24h, others use 2h).
         """
         if parent.id not in self._children_cache:
-            from datetime import timedelta
+            from datetime import datetime, timedelta
+
+            explicit_children = self._children_by_parent_id.get(parent.id)
+            if explicit_children:
+                self._children_cache[parent.id] = explicit_children
+                return explicit_children
 
             related = []
             if parent.modified_time:
@@ -433,12 +457,8 @@ class AgentSessionsBrowser(App):
                 else:
                     time_window = timedelta(hours=2)
 
-                for child in self.child_sessions:
-                    # Must be same harness and project
-                    if child.harness != parent.harness:
-                        continue
-                    if child.project_path != parent.project_path:
-                        continue
+                key = (parent.harness, str(parent.project_path))
+                for child in self._children_by_key.get(key, []):
                     # Check time proximity
                     child_time = child.modified_time or child.created_time
                     if child_time and abs((child_time - parent.modified_time).total_seconds()) < time_window.total_seconds():
@@ -961,10 +981,10 @@ class AgentSessionsBrowser(App):
             if session_id in parent_ids:
                 parent_scores[session_id] = max(parent_scores.get(session_id, 0), score)
             else:
-                # Child match — propagate score to parent
-                for s in self.child_sessions:
-                    if s.id == session_id and s.parent_id and s.parent_id in parent_ids:
-                        parent_scores[s.parent_id] = max(parent_scores.get(s.parent_id, 0), score)
+                # Child match — propagate score to explicit parent.
+                parent_id = self._child_parent_by_id.get(session_id)
+                if parent_id and parent_id in parent_ids:
+                    parent_scores[parent_id] = max(parent_scores.get(parent_id, 0), score)
 
         parents_by_id = {p.id: p for p in self.parent_sessions}
         self._filtered_parents = [parents_by_id[pid] for pid in parent_scores]

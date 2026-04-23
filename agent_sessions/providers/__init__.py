@@ -45,8 +45,11 @@ def discover_all_sessions():
     return all_sessions
 
 
-# Import providers to trigger registration
-from . import droid  # noqa: F401, E402
+# Import providers to trigger registration.
+# Order matters because the registry preserves insertion order and the UI
+# uses that order for provider selection surfaces.
 from . import claude_code  # noqa: F401, E402
+from . import codex  # noqa: F401, E402
+from . import droid  # noqa: F401, E402
 from . import cursor  # noqa: F401, E402
 from . import opencode  # noqa: F401, E402

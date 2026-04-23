@@ -282,7 +282,7 @@ def cmd_stats(args):
     print()
     
     print("Sessions by harness:")
-    for harness in ["droid", "claude-code", "opencode", "cursor"]:
+    for harness in ["claude-code", "codex", "droid", "cursor", "opencode"]:
         count = db.count_sessions(harness=harness)
         if count > 0:
             print(f"  {harness}: {count}")
