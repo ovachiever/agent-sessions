@@ -903,10 +903,11 @@ class AgentSessionsBrowser(App):
     def action_activate_search(self):
         """Activate search mode (/). Routes to in-transcript find when a transcript is open."""
         detail = self.query_one("#detail-panel", SessionDetailPanel)
-        if detail._in_transcript_mode and detail._transcript_ready:
-            if detail.open_find():
-                return
-            self.notify("Transcript still loading…", severity="warning")
+        if detail._in_transcript_mode:
+            if detail._transcript_ready:
+                detail.open_find()
+            else:
+                self.notify("Transcript still loading…", severity="warning")
             return
 
         search_input = self.query_one("#search-input", Input)
