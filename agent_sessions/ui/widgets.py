@@ -6,10 +6,47 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import ScrollableContainer
 from textual.binding import Binding
-from textual.widgets import ListItem, Static, TextArea
+from textual.widgets import Input, ListItem, Static, TextArea
+from textual.widgets.text_area import Selection
 
 from ..models import Session
 from ..providers import get_provider
+
+
+def offset_to_line_col(text: str, offset: int) -> tuple[int, int]:
+    """Convert an absolute character offset into (line, column) for TextArea."""
+    if offset <= 0:
+        return 0, 0
+    line = text.count("\n", 0, offset)
+    last_nl = text.rfind("\n", 0, offset)
+    col = offset - (last_nl + 1) if last_nl >= 0 else offset
+    return line, col
+
+
+def find_all_matches(haystack: str, needle: str) -> list[int]:
+    """Return all start offsets of needle in haystack, case-insensitive.
+
+    Empty needle returns []. Uses casefold() for Unicode-aware matching.
+    """
+    if not needle:
+        return []
+    hay = haystack.casefold()
+    pin = needle.casefold()
+    if len(pin) != len(needle) and len(hay) != len(haystack):
+        # Casefold can change length (e.g. ß → ss); in that case offsets in
+        # the folded string don't map back. Fall back to plain lowercase, which
+        # is length-preserving for the scripts we realistically render.
+        hay = haystack.lower()
+        pin = needle.lower()
+    out: list[int] = []
+    i = 0
+    while True:
+        j = hay.find(pin, i)
+        if j < 0:
+            break
+        out.append(j)
+        i = j + 1  # allow overlapping matches
+    return out
 
 
 def truncate(text: str, max_len: int = 100) -> str:
@@ -33,12 +70,25 @@ class TranscriptArea(TextArea):
         Binding("y", "app.copy_transcript", "Copy All", show=False),
         Binding("a", "app.select_all_transcript", "Select All", show=False),
         Binding("escape", "app.back_to_list", "Back"),
+        Binding("slash", "app.activate_search", "Find", show=False),
+        Binding("n", "app.transcript_find_next", "Next match", show=False),
+        Binding("shift+n", "app.transcript_find_prev", "Prev match", show=False),
     ]
 
     async def _on_key(self, event) -> None:
         if self.read_only and event.is_printable:
             return  # bubble to app bindings
         await super()._on_key(event)
+
+
+class TranscriptFindBar(Input):
+    """Input widget docked at the bottom of the transcript for find-in-page."""
+
+    BINDINGS = [
+        Binding("escape", "app.transcript_find_close", "Close find", show=False),
+        Binding("down", "app.transcript_find_next", "Next match", show=False),
+        Binding("up", "app.transcript_find_prev", "Prev match", show=False),
+    ]
 
 
 class ParentSessionItem(ListItem):
@@ -161,6 +211,11 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         self._in_transcript_mode: bool = False
         self._transcript_area: Optional[TranscriptArea] = None
         self._transcript_buf: str = ""
+        self._transcript_ready: bool = False
+        self._find_bar: Optional["TranscriptFindBar"] = None
+        self._find_query: str = ""
+        self._find_matches: list[int] = []
+        self._find_index: int = 0
 
     # -- drag-to-scroll at viewport edges (non-transcript mode) --
 
@@ -248,9 +303,99 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         self._transcript_messages = []
 
     def _exit_transcript_mode(self) -> None:
+        self.close_find()
         self._in_transcript_mode = False
         self._transcript_area = None
         self._transcript_buf = ""
+        self._transcript_ready = False
+        self._find_query = ""
+        self._find_matches = []
+        self._find_index = 0
+
+    # -- in-transcript find --
+
+    def open_find(self) -> bool:
+        """Mount the find bar at the bottom of the panel. Returns True on success."""
+        if not self._in_transcript_mode or not self._transcript_ready:
+            return False
+        if self._find_bar is not None:
+            self._find_bar.focus()
+            return True
+        bar = TranscriptFindBar(
+            placeholder="Find in transcript… (Esc to close, ↓/↑ next/prev)",
+            id="transcript-find-bar",
+        )
+        self.mount(bar)
+        self._find_bar = bar
+        bar.focus()
+        return True
+
+    def close_find(self) -> None:
+        """Unmount the find bar and clear the active selection."""
+        if self._find_bar is not None:
+            self._find_bar.remove()
+            self._find_bar = None
+        self._find_query = ""
+        self._find_matches = []
+        self._find_index = 0
+        if self._transcript_area is not None:
+            try:
+                cur = self._transcript_area.cursor_location
+                self._transcript_area.selection = Selection(start=cur, end=cur)
+                self._transcript_area.focus()
+            except Exception:
+                pass
+
+    def update_find_query(self, query: str) -> None:
+        """Recompute matches against the transcript buffer and jump to the first."""
+        self._find_query = query
+        if self._transcript_area is None:
+            self._find_matches = []
+            self._find_index = 0
+            self._update_find_status()
+            return
+        text = self._transcript_area.text
+        self._find_matches = find_all_matches(text, query)
+        self._find_index = 0
+        if self._find_matches:
+            self._apply_current_match()
+        self._update_find_status()
+
+    def goto_match(self, delta: int) -> None:
+        """Move to the next/previous match (wraps around)."""
+        if not self._find_matches:
+            return
+        n = len(self._find_matches)
+        self._find_index = (self._find_index + delta) % n
+        self._apply_current_match()
+        self._update_find_status()
+
+    def _apply_current_match(self) -> None:
+        if not self._find_matches or self._transcript_area is None:
+            return
+        text = self._transcript_area.text
+        offset = self._find_matches[self._find_index]
+        end_offset = offset + len(self._find_query)
+        start_lc = offset_to_line_col(text, offset)
+        end_lc = offset_to_line_col(text, end_offset)
+        try:
+            self._transcript_area.selection = Selection(start=start_lc, end=end_lc)
+            self._transcript_area.scroll_cursor_visible(center=True)
+        except Exception:
+            pass
+
+    def _update_find_status(self) -> None:
+        if self._find_bar is None:
+            return
+        if not self._find_query:
+            self._find_bar.border_title = "Find"
+        elif not self._find_matches:
+            self._find_bar.border_title = "Find — no matches"
+        else:
+            n = len(self._find_matches)
+            self._find_bar.border_title = (
+                f"Find — match {self._find_index + 1}/{n}"
+            )
 
     def get_transcript_text(self) -> str:
         """Get plain text of all transcript messages for clipboard."""
@@ -411,9 +556,10 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         """Finish the transcript — populate TextArea with full content."""
         if self._in_transcript_mode and self._transcript_area:
             self._transcript_buf += "\n━━━ End of Transcript ━━━\n"
-            self._transcript_buf += "c copy all | Escape back"
+            self._transcript_buf += "c copy all | / find | Escape back"
             self._transcript_area.text = self._transcript_buf
             self._transcript_area.move_cursor((0, 0))
+            self._transcript_ready = True
         else:
             text = Text()
             text.append("━━━ End of Transcript ━━━\n", style="bold cyan")

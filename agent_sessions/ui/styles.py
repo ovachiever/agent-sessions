@@ -74,6 +74,14 @@ Screen {
     background: transparent;
 }
 
+#transcript-find-bar {
+    dock: bottom;
+    height: 3;
+    border: solid $accent;
+    background: $surface;
+    padding: 0 1;
+}
+
 ParentSessionItem, SubagentSessionItem {
     height: 1;
     padding: 0 1;

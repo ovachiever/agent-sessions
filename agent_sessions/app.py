@@ -868,6 +868,12 @@ class AgentSessionsBrowser(App):
 
     def action_back_to_list(self):
         """Go back to parent list (Escape)."""
+        # In-transcript find takes priority over leaving transcript view.
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
+        if detail._find_bar is not None:
+            detail.close_find()
+            return
+
         search_input = self.query_one("#search-input", Input)
         if search_input.has_focus:
             if hasattr(self, '_annotation_mode') and self._annotation_mode:
@@ -895,11 +901,37 @@ class AgentSessionsBrowser(App):
             self.action_quit()
 
     def action_activate_search(self):
-        """Activate search mode (/)."""
+        """Activate search mode (/). Routes to in-transcript find when a transcript is open."""
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
+        if detail._in_transcript_mode and detail._transcript_ready:
+            if detail.open_find():
+                return
+            self.notify("Transcript still loading…", severity="warning")
+            return
+
         search_input = self.query_one("#search-input", Input)
         search_input.add_class("visible")
         search_input.value = ""
         search_input.focus()
+
+    def action_transcript_find_close(self):
+        """Close the in-transcript find bar (Esc inside the find input)."""
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
+        detail.close_find()
+
+    def action_transcript_find_next(self):
+        """Jump to the next match in the transcript."""
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
+        if detail._find_bar is None or not detail._find_matches:
+            return
+        detail.goto_match(1)
+
+    def action_transcript_find_prev(self):
+        """Jump to the previous match in the transcript."""
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
+        if detail._find_bar is None or not detail._find_matches:
+            return
+        detail.goto_match(-1)
 
     def _cancel_search(self):
         """Cancel search input without executing."""
@@ -1044,6 +1076,19 @@ class AgentSessionsBrowser(App):
         idx = self._SORT_CYCLE.index(self._search_sort_order)
         self._search_sort_order = self._SORT_CYCLE[(idx + 1) % len(self._SORT_CYCLE)]
         self._sort_and_display_results()
+
+    @on(Input.Changed, "#transcript-find-bar")
+    def on_transcript_find_changed(self, event: Input.Changed):
+        """Live-update transcript matches as the user types."""
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
+        detail.update_find_query(event.value)
+
+    @on(Input.Submitted, "#transcript-find-bar")
+    def on_transcript_find_submitted(self, event: Input.Submitted):
+        """Enter on the find bar advances to the next match."""
+        detail = self.query_one("#detail-panel", SessionDetailPanel)
+        if detail._find_matches:
+            detail.goto_match(1)
 
     @on(Input.Submitted, "#search-input")
     def on_search_submitted(self, event: Input.Submitted):
