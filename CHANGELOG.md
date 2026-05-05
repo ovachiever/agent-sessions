@@ -14,6 +14,7 @@
 
 - `agent-sessions search --harness` and `--project` now constrain indexed search results
 - `agent-sessions --generate-embeddings` now backfills chunks missing embeddings instead of inspecting only chunks that already had embeddings
+- Declared NumPy as a runtime dependency for semantic/hybrid search scoring
 
 ### Maintenance
 

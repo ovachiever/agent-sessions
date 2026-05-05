@@ -26,6 +26,7 @@ classifiers = [
 ]
 keywords = ["tui", "terminal", "ai", "sessions", "claude", "cursor", "droid", "coding-assistant"]
 dependencies = [
+    "numpy>=1.26",
     "textual>=0.40.0",
     "rich>=13.0.0",
 ]
