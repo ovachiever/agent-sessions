@@ -17,7 +17,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, ListView, LoadingIndicator, Static
 
 from .cache import MetadataCache, generate_summary_sync, HAS_OPENAI
-from .index import SessionDatabase, SessionIndexer, HybridSearch
+from .index import SessionDatabase, SessionIndexer, HybridSearch, SearchResult
 from .models import Session
 from .providers import get_available_providers, get_provider
 from .search import search_sessions
@@ -131,6 +131,8 @@ class AgentSessionsBrowser(App):
         self._search_mode = False
         self._search_query = ""
         self._search_scores: dict[str, float] = {}
+        self._search_matches: dict[str, SearchResult] = {}
+        self._search_display_matches: dict[str, SearchResult] = {}
         self._filtered_parents: list[Session] = []
         self._search_matching_children: list[Session] = []
         self._search_sort_order: str = "relevance"  # "relevance" | "newest" | "oldest"
@@ -795,7 +797,13 @@ class AgentSessionsBrowser(App):
 
             if self._search_mode:
                 self._update_search_results_list(event.item.session)
-                detail.show_session(event.item.session, 0)
+                match = self._search_display_matches.get(event.item.session.id)
+                detail.show_session(
+                    event.item.session,
+                    0,
+                    match_snippet=match.match_snippet if match else None,
+                    match_source=match.match_source if match else None,
+                )
             else:
                 # Use precomputed children from cache
                 self._update_children_list(event.item.session)
@@ -831,7 +839,12 @@ class AgentSessionsBrowser(App):
 
         if event.item and isinstance(event.item, SubagentSessionItem):
             self.selected_session = event.item.session
-            detail.show_session(event.item.session)
+            match = self._search_display_matches.get(event.item.session.id) if self._search_mode else None
+            detail.show_session(
+                event.item.session,
+                match_snippet=match.match_snippet if match else None,
+                match_source=match.match_source if match else None,
+            )
 
     def action_switch_pane(self):
         """Switch focus between parent and child panes only (Tab)."""
@@ -947,6 +960,8 @@ class AgentSessionsBrowser(App):
         self._search_mode = False
         self._search_query = ""
         self._search_scores = {}
+        self._search_matches = {}
+        self._search_display_matches = {}
         self._filtered_parents = []
         self._search_matching_children = []
         self._search_sort_order = "relevance"
@@ -1003,27 +1018,36 @@ class AgentSessionsBrowser(App):
     def _apply_search_results(self, results):
         """Apply search results to the UI (called on main thread)."""
         self._search_scores = {}
+        self._search_matches = {}
         for result in results:
             self._search_scores[result.session_id] = result.score
+            self._search_matches[result.session_id] = result
 
         # Build parent scores: direct matches + child-to-parent propagation
         parent_scores: dict[str, float] = {}
+        display_matches: dict[str, SearchResult] = {}
         parent_ids = {p.id for p in self.parent_sessions}
 
         for session_id, score in self._search_scores.items():
             if session_id in parent_ids:
-                parent_scores[session_id] = max(parent_scores.get(session_id, 0), score)
+                if score >= parent_scores.get(session_id, 0):
+                    parent_scores[session_id] = score
+                    display_matches[session_id] = self._search_matches[session_id]
             else:
                 # Child match — propagate score to explicit parent.
                 parent_id = self._child_parent_by_id.get(session_id)
                 if parent_id and parent_id in parent_ids:
-                    parent_scores[parent_id] = max(parent_scores.get(parent_id, 0), score)
+                    if score >= parent_scores.get(parent_id, 0):
+                        parent_scores[parent_id] = score
+                        display_matches[parent_id] = self._search_matches[session_id]
 
         parents_by_id = {p.id: p for p in self.parent_sessions}
         self._filtered_parents = [parents_by_id[pid] for pid in parent_scores]
 
         # Store parent-level scores for display
         self._search_scores.update(parent_scores)
+        self._search_display_matches = dict(self._search_matches)
+        self._search_display_matches.update(display_matches)
 
         self._search_sort_order = "relevance"
 

@@ -23,6 +23,8 @@ venv/
 .DS_Store
 
 # Internal (local-only, never push)
+.dev/
+.claude/
 PUSH.md
 AGENTS.md
 PUBLIC_RELEASE_CHECKLIST.md

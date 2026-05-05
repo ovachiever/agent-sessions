@@ -10,6 +10,7 @@ import pytest
 from textual.widgets import Input
 
 from agent_sessions.app import AgentSessionsBrowser
+from agent_sessions.index.search import SearchResult
 from agent_sessions.models import Session
 from agent_sessions.ui.widgets import SessionDetailPanel, TranscriptFindBar
 
@@ -147,3 +148,74 @@ async def test_no_matches_status(monkeypatch):
         await pilot.pause()
         assert detail._find_matches == []
         assert "no matches" in str(detail._find_bar.border_title).lower()
+
+
+@pytest.mark.asyncio
+async def test_search_match_explanation_renders_in_detail_panel(monkeypatch):
+    monkeypatch.setattr(
+        AgentSessionsBrowser, "_load_sessions_background", lambda self: None
+    )
+    app = AgentSessionsBrowser()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        detail = app.query_one("#detail-panel", SessionDetailPanel)
+        detail.display = True
+
+        detail.show_session(
+            _fake_session(),
+            match_snippet="Discussed natural language session search",
+            match_source="semantic",
+        )
+        await pilot.pause()
+
+        rendered = "\n".join(
+            getattr(child.render(), "plain", str(child.render()))
+            for child in detail.children
+            if hasattr(child, "render")
+        )
+        assert "Search Match" in rendered
+        assert "Source: semantic" in rendered
+        assert "Discussed natural language session search" in rendered
+
+
+@pytest.mark.asyncio
+async def test_child_search_match_propagates_to_parent_result(monkeypatch):
+    monkeypatch.setattr(
+        AgentSessionsBrowser, "_load_sessions_background", lambda self: None
+    )
+    app = AgentSessionsBrowser()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        parent = _fake_session()
+        parent.id = "parent"
+        child = _fake_session()
+        child.id = "child"
+        child.is_child = True
+        child.parent_id = "parent"
+        child.child_type = "worker"
+
+        app.parent_sessions = [parent]
+        app.child_sessions = [child]
+        app._child_parent_by_id = {"child": "parent"}
+        app._children_by_parent_id = {"parent": [child]}
+        app._search_mode = True
+        app._search_query = "natural search"
+
+        app._apply_search_results(
+            [
+                SearchResult(
+                    session_id="child",
+                    score=0.9,
+                    match_snippet="Matched through child session",
+                    match_source="semantic",
+                )
+            ]
+        )
+        await pilot.pause()
+
+        assert app._search_display_matches["parent"].session_id == "child"
+        assert (
+            app._search_display_matches["parent"].match_snippet
+            == "Matched through child session"
+        )

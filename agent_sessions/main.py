@@ -74,7 +74,12 @@ def cmd_search(args):
     db = SessionDatabase()
     search = HybridSearch(db)
     
-    results = search.search(query=args.query, limit=args.limit)
+    results = search.search(
+        query=args.query,
+        limit=args.limit,
+        harness=args.harness,
+        project=args.project,
+    )
     
     if not results:
         print(f"No matches found for: {args.query}")
@@ -93,6 +98,9 @@ def cmd_search(args):
         print(f"{provider_icon} {session.project_name} - {session.first_prompt_preview[:50] if session.first_prompt_preview else 'No preview'}")
         print(f"   ID: {result.session_id}")
         print(f"   Score: {result.score:.2f}")
+        if result.match_snippet:
+            source = result.match_source or "search"
+            print(f"   Match ({source}): {result.match_snippet}")
         print()
 
 
@@ -182,8 +190,7 @@ def cmd_generate_embeddings(args):
         print("   Set OPENAI_API_KEY environment variable to enable embeddings.")
         return
     
-    all_chunks = db.get_all_chunk_embeddings()
-    chunks_without_embeddings = [c for c in all_chunks if c[2] is None]
+    chunks_without_embeddings = db.get_chunks_without_embeddings()
     
     if not chunks_without_embeddings:
         print("✓ All chunks already have embeddings!")
@@ -193,19 +200,17 @@ def cmd_generate_embeddings(args):
     print()
     
     chunk_objects = []
-    for session_id, chunk_index, _ in chunks_without_embeddings:
-        chunk_rows = db.get_session_chunks(session_id)
-        for row in chunk_rows:
-            if row.chunk_index == chunk_index:
-                chunk = Chunk(
-                    session_id=row.session_id,
-                    chunk_type=row.chunk_type,
-                    content=row.content,
-                    metadata=json.loads(row.metadata) if row.metadata else {},
-                    embedding=None
-                )
-                chunk_objects.append((chunk, row))
-                break
+    for row in chunks_without_embeddings:
+        chunk = Chunk(
+            session_id=row.session_id,
+            message_id=row.message_id,
+            chunk_index=row.chunk_index,
+            chunk_type=row.chunk_type,
+            content=row.content,
+            metadata=row.metadata or "{}",
+            embedding=None,
+        )
+        chunk_objects.append((chunk, row))
     
     batch_size = 100
     total = len(chunk_objects)
@@ -225,8 +230,8 @@ def cmd_generate_embeddings(args):
                     chunk_index=orig_row.chunk_index,
                     chunk_type=chunk.chunk_type,
                     content=chunk.content,
-                    metadata=json.dumps(chunk.metadata),
-                    embedding=EmbeddingGenerator.serialize_embedding(chunk.embedding),
+                    metadata=chunk.metadata,
+                    embedding=chunk.embedding,
                     embedding_model="text-embedding-3-small",
                     created_at=orig_row.created_at
                 ))

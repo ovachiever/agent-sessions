@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.0 (2026-05-05)
+
+### Features
+
+- Natural-language search cleanup for queries such as "find me the sessions where we worked on X"
+- Hybrid search now applies `harness:`, `project:`, `after:`, `before:`, and `#tag:` filters through the active indexed search path
+- Search results carry best-match snippets and source labels (`keyword`, `metadata`, or `semantic`)
+- CLI search and the TUI detail panel show match explanations
+- Child/sub-agent search matches propagate to parent sessions with their best-match snippet
+
+### Fixes
+
+- `agent-sessions search --harness` and `--project` now constrain indexed search results
+- `agent-sessions --generate-embeddings` now backfills chunks missing embeddings instead of inspecting only chunks that already had embeddings
+
+### Maintenance
+
+- Added focused hybrid-search tests and TUI regression coverage for match explanations
+- Moved local-only release noise into ignored `.dev/`
+- Removed tracked local Claude settings from the release surface
+- Refreshed README and contributor docs to current implemented behavior
+
 ## 0.7.0 (2026-03-16)
 
 ### Features

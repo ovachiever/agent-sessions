@@ -1,44 +1,32 @@
-<p align="center">
-  <h1 align="center">agent-sessions</h1>
-  <p align="center">
-    <strong>One TUI to browse, search, and resume every AI coding session you've ever had.</strong>
-  </p>
-  <p align="center">
-    <a href="https://github.com/ovachiever/agent-sessions/actions"><img src="https://github.com/ovachiever/agent-sessions/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <a href="https://pypi.org/project/agent-sessions/"><img src="https://img.shields.io/pypi/v/agent-sessions" alt="PyPI"></a>
-    <a href="https://github.com/ovachiever/agent-sessions/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
-    <img src="https://img.shields.io/pypi/pyversions/agent-sessions" alt="Python">
-  </p>
-</p>
+# agent-sessions
 
----
+Universal terminal UI for browsing, searching, reading, annotating, and resuming AI coding sessions across multiple assistant tools.
 
-If you use more than one AI coding assistant, your conversations are scattered across different directories, formats, and tools. **agent-sessions** pulls them into a single terminal interface. Search across every session at once, read full transcripts with selectable text, copy what you need, and resume any conversation — regardless of which tool started it.
+`agent-sessions` indexes local conversation stores from supported coding assistants into one SQLite database, then exposes them through a fast Textual TUI and a small CLI.
 
-<p align="center">
-  <img src="assets/screenshot.jpg?v=3" alt="agent-sessions TUI" width="900">
-</p>
+![agent-sessions TUI](assets/screenshot.jpg?v=3)
 
 ## Supported Providers
 
-| Provider | Status | Sessions Location |
-|----------|--------|-------------------|
-| **Claude Code** | ✅ | `~/.claude/projects/` |
-| **Codex** | ✅ | `~/.codex/sessions/` |
-| **FactoryAI Droid** | ✅ | `~/.factory/sessions/` |
-| **Cursor** | ✅ | `~/Library/Application Support/Cursor/` |
-| **OpenCode** | ✅ | `~/.local/share/opencode/` |
-| Windsurf | planned | |
-| Aider | planned | |
-| Amp | planned | |
+| Provider | Status | Session location |
+| --- | --- | --- |
+| Claude Code | Supported | `~/.claude/projects/` |
+| Codex | Supported | `~/.codex/sessions/` |
+| FactoryAI Droid | Supported | `~/.factory/sessions/` |
+| Cursor | Supported | `~/Library/Application Support/Cursor/` |
+| OpenCode | Supported | `~/.local/share/opencode/` |
 
-## Installation
+## Install
 
 ```bash
 pip install agent-sessions
+```
 
-# or with pipx (recommended)
-pipx install agent-sessions
+For optional AI summaries and semantic search:
+
+```bash
+pip install "agent-sessions[ai]"
+export OPENAI_API_KEY="sk-..."
 ```
 
 From source:
@@ -47,156 +35,166 @@ From source:
 git clone https://github.com/ovachiever/agent-sessions.git
 cd agent-sessions
 pip install -e ".[dev]"
+pytest
 ```
 
-## Quick Start
+## Use
 
 ```bash
-agent-sessions    # launch the TUI
-ais               # short alias
+agent-sessions
+ais
 ```
 
-On first launch, sessions are discovered and indexed automatically. Press `i` at any time to pick up new sessions without restarting.
+The first launch indexes available provider stores. Press `i` in the TUI to reindex later.
+
+Common CLI commands:
+
+```bash
+agent-sessions providers --status
+agent-sessions search "find me the sessions where we worked on auth token refresh"
+agent-sessions search "harness:codex project:api after:7d natural language search"
+agent-sessions --stats
+agent-sessions --reindex
+agent-sessions --generate-embeddings
+```
 
 ## Keybindings
 
 | Key | Action |
-|-----|--------|
-| `j/k` `↑/↓` | Navigate session list |
-| `Tab` | Switch between session list and sub-agent list |
-| `Shift+Tab` | Focus detail panel (for scrolling and text selection) |
-| `/` | Search across all sessions |
+| --- | --- |
+| `/` | Search sessions, or find within an open transcript |
+| `s` | Cycle search sort order: relevance, newest, oldest |
 | `f` | Cycle provider filter |
-| `t` | Load full session transcript |
-| `Ctrl+T` | Add a tag to selected session |
-| `Ctrl+N` | Add a note to selected session |
-| `y` | Copy entire transcript to clipboard |
-| `c` | Copy visible message to clipboard |
-| `r` | Resume session (opens in correct project directory) |
-| `Enter` | Copy resume command to clipboard |
-| `i` | Reindex (pick up new sessions) |
-| `Escape` | Back / clear search |
+| `t` | Load full transcript |
+| `Ctrl+T` | Add tag to selected session |
+| `Ctrl+N` | Add note to selected session |
+| `y` | Copy full transcript |
+| `c` | Copy visible transcript message |
+| `r` | Resume selected session |
+| `Enter` | Copy resume command |
+| `i` | Reindex sessions |
+| `Tab` | Switch parent/sub-agent panes |
+| `Shift+Tab` | Focus detail panel |
+| `Escape` | Back, clear search, or close find |
 | `q` | Quit |
 
 ## Search
 
-Full-text search runs across every message in every session, with optional semantic matching when AI features are enabled. Supports inline filters:
+Search is session-level and hybrid:
 
-```
-auth middleware                          # search everywhere
-harness:claude-code React component      # limit to Claude Code
-project:api after:7d JWT                 # project + time filter
-#tag:breakthrough                        # filter by annotation tag
-#tag:bugfix authentication               # combine tag filter with text search
+- FTS5 keyword search over indexed messages and session metadata.
+- Optional semantic search over embedded transcript chunks when `agent-sessions[ai]` and `OPENAI_API_KEY` are available.
+- Natural-language query cleanup for prompts like `find me the sessions where we worked on X`.
+- Inline filters for provider, project, time range, and annotation tags.
+- Match explanations in CLI output and the TUI detail panel.
+- Child/sub-agent matches propagate to the parent session result.
+
+Examples:
+
+```bash
+auth middleware
+find me the sessions where we worked on webhook replay handling
+harness:claude-code React component
+project:api after:7d JWT refresh
+before:2026-04-01 indexing
+#tag:breakthrough semantic search
 ```
 
-Modifiers: `harness:`, `project:`, `after:` (e.g. `7d`, `1w`), `before:` (date or relative), `#tag:` (annotation tag).
+Supported filters:
+
+| Filter | Meaning |
+| --- | --- |
+| `harness:name` | Provider name, such as `codex`, `claude-code`, `droid`, `cursor`, or `opencode` |
+| `project:name` | Project name or path substring |
+| `after:value` | Session modified after ISO date or relative value like `7d`, `2w`, `24h` |
+| `before:value` | Session modified before ISO date or relative value |
+| `#tag:name` | Sessions with a matching annotation tag |
+
+## Transcripts
+
+Press `t` on a session to stream the full transcript into a selectable text view. Transcript search uses `/`, `n`, and `Shift+N` inside the transcript view. The indexed transcript loader falls back to provider-native parsing when a provider format needs special handling.
 
 ## Annotations
 
-Tag and annotate sessions to mark important moments, breakthroughs, or decisions.
+Annotations are stored outside cache at:
 
-### During a Claude Code session
-
-Use `#tag:` and `#note` markup in your prompts. A `UserPromptSubmit` hook captures annotations and stores them to disk.
-
-```
-#tag:breakthrough                                    # pure tag — blocked from model
-#tag:bugfix #note auth token was expired             # pure annotations — blocked
-fix the parser #tag:refactor                         # mixed — model sees "fix the parser", tag saved
+```text
+~/.local/share/agent-sessions/annotations/{session_id}.json
 ```
 
-Pure annotation prompts (no other content) are blocked from reaching the model. Mixed prompts pass through with the annotation stripped for the model's context.
+In the TUI:
 
-### From the TUI
+- `Ctrl+T` adds a tag.
+- `Ctrl+N` adds a note.
 
-Press `Ctrl+T` to add a tag or `Ctrl+N` to add a note to the currently selected session. Annotations appear in the session detail panel and are searchable.
+During Claude Code sessions, an optional local `UserPromptSubmit` hook can capture `#tag:name` and `#note text` markup. Pure annotation prompts can be blocked from reaching the model; mixed prompts pass through with annotation markup stripped.
 
-### Setup
+Tags and notes sync into the SQLite index during reindex and are shown in the session detail panel.
 
-The hook is installed at `~/.claude/hooks/annotate.py` and registered in `~/.claude/settings.json`. Annotation files are stored at `~/.local/share/agent-sessions/annotations/`. They sync into the database automatically during indexing.
+## AI Features
 
-## Features
+AI features are opt-in and require `agent-sessions[ai]` plus `OPENAI_API_KEY`.
 
-- **Multi-provider** — browse Codex, Droid, Claude Code, Cursor, and OpenCode sessions in one place
-- **Split-pane UI** — parent sessions on top, linked sub-agents below
-- **Full-text search** — FTS5-indexed across all messages, with optional hybrid semantic search
-- **Session annotations** — tag and annotate sessions inline or retroactively; searchable via `#tag:` syntax
-- **Streaming transcripts** — read any session's complete conversation, streamed in batches for responsiveness
-- **Selectable text** — highlight and copy directly from transcript content using your terminal's native selection
-- **Clipboard integration** — `y` copies the full transcript, `c` copies the message at your scroll position
-- **Session resume** — jump back into any session with the right tool, in the right directory
-- **AI summaries** — auto-generated one-line summaries via GPT-5.2 (optional)
-- **Incremental indexing** — fast startup; only processes new or changed sessions
+- Summaries use `gpt-5.2` to generate concise session titles.
+- Semantic search uses `text-embedding-3-small` embeddings over session chunks.
+- Embeddings are cached in SQLite. Use `agent-sessions --generate-embeddings` to backfill chunks that were indexed before AI features were enabled.
 
-## Transcript Viewer
+The core TUI, provider parsing, transcript browsing, annotations, and keyword search work without AI dependencies.
 
-Press `t` on any session to load its full conversation. Messages stream into the detail panel as they load — user messages bordered in green, assistant messages in magenta, each numbered for reference.
+## Storage
 
-The transcript renders as selectable terminal text. Highlight with your mouse to copy specific passages, or use `y` to copy everything at once. Press `c` to copy the message nearest your scroll position.
+| Data | Location |
+| --- | --- |
+| SQLite index | `~/.cache/agent-sessions/sessions.db` |
+| Legacy summary cache | `~/.cache/agent-sessions/summaries.json` |
+| Metadata cache | `~/.cache/agent-sessions/metadata.json` |
+| Annotation files | `~/.local/share/agent-sessions/annotations/` |
 
-For sessions with nested JSONL formats (like Claude Code), the viewer automatically falls back to the provider's native parser when the indexed content is incomplete.
+The index is disposable. Source sessions remain in each provider's own store.
 
-## Optional Dependencies
+## Provider Contract
 
-The core tool has no heavy dependencies. AI features are opt-in:
-
-```bash
-pip install agent-sessions[ai]    # AI summaries + semantic search
-```
-
-### Setup
-
-Set your OpenAI API key:
-
-```bash
-export OPENAI_API_KEY="sk-..."
-```
-
-With the `ai` extra installed and key set, you get:
-
-- **AI summaries** — GPT-5.2 generates short one-line summaries for each session in the background. Summaries are cached in a local SQLite database, so each session is only summarized once. Lines flip from grey to white in real-time as they arrive.
-- **Semantic search** — OpenAI embeddings run alongside FTS5 for hybrid keyword + semantic matching. Find sessions by meaning, not just exact words.
-
-## Adding a Provider
-
-Providers are self-contained modules. Implement the `SessionProvider` ABC:
+Providers implement `SessionProvider` and return normalized `Session` objects plus user/assistant messages:
 
 ```python
+from pathlib import Path
+
 from agent_sessions.providers import register_provider
 from agent_sessions.providers.base import SessionProvider
+
 
 @register_provider
 class MyProvider(SessionProvider):
     name = "my-tool"
     display_name = "My Tool"
-    icon = "🔧"
+    icon = "T"
     color = "blue"
 
-    def get_sessions_dir(self):
+    def get_sessions_dir(self) -> Path:
         return Path.home() / ".my-tool" / "sessions"
 
-    def discover_session_files(self):
+    def discover_session_files(self) -> list[Path]:
         ...
 
-    def parse_session(self, path):
+    def parse_session(self, path: Path):
         ...
 
-    def get_session_messages(self, session):
+    def get_session_messages(self, session) -> list[dict]:
         ...
 
-    def get_resume_command(self, session):
+    def get_resume_command(self, session) -> str:
         return f"my-tool --resume {session.id}"
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+## Development
 
-## Requirements
+```bash
+pip install -e ".[dev]"
+pytest
+```
 
-- Python 3.10+
-- [Textual](https://textual.textualize.io/) >= 0.40.0
-- [Rich](https://rich.readthedocs.io/) >= 13.0.0
+Release-facing files are kept at the repository root. Local notes, generated metadata, caches, and other non-release artifacts belong in ignored `.dev/`.
 
 ## License
 
-[MIT](LICENSE)
+MIT. See [LICENSE](LICENSE).

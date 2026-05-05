@@ -401,7 +401,13 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
         """Get plain text of all transcript messages for clipboard."""
         return "\n".join(t.plain for t in self._transcript_messages)
 
-    def show_session(self, session: Session, child_count: int = 0):
+    def show_session(
+        self,
+        session: Session,
+        child_count: int = 0,
+        match_snippet: str | None = None,
+        match_source: str | None = None,
+    ):
         """Update display with session info."""
         self.session = session
         provider = get_provider(session.harness)
@@ -473,6 +479,18 @@ class SessionDetailPanel(ScrollableContainer, can_focus=True):
                     text.append(f"{ts_display} ", style="dim")
                 text.append(f"{note['value']}\n", style="white")
             text.append("└───────────────────────────────────────\n", style="yellow")
+
+        if match_snippet:
+            source = match_source or "search"
+            text.append("\n")
+            text.append("┌─ Search Match ────────────────────────\n", style="bold cyan")
+            text.append("│ ", style="cyan")
+            text.append("Source: ", style="bold")
+            text.append(f"{source}\n", style="yellow")
+            for line in match_snippet.split("\n"):
+                text.append("│ ", style="cyan")
+                text.append(f"{line}\n", style="white")
+            text.append("└───────────────────────────────────────\n", style="cyan")
 
         text.append("\n")
 

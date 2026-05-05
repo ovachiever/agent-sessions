@@ -1,73 +1,120 @@
 # Contributing
 
-## Setup
+## Development Setup
 
 ```bash
 git clone https://github.com/ovachiever/agent-sessions.git
 cd agent-sessions
 pip install -e ".[dev]"
+pytest
 ```
 
-## Running Tests
+Optional AI features require:
 
 ```bash
-pytest tests/
+pip install -e ".[ai,dev]"
+export OPENAI_API_KEY="sk-..."
 ```
 
-## Adding a New Provider
+## Repository Layout
 
-1. Create `agent_sessions/providers/your_provider.py`
-2. Implement the `SessionProvider` ABC:
+| Path | Purpose |
+| --- | --- |
+| `agent_sessions/` | Runtime package |
+| `agent_sessions/providers/` | Provider implementations |
+| `agent_sessions/index/` | SQLite schema, indexing, chunking, embeddings, hybrid search |
+| `agent_sessions/ui/` | Textual widgets and styles |
+| `tests/` | Unit and Textual pilot tests |
+| `assets/` | Public README assets |
+| `.github/workflows/` | CI |
+| `.dev/` | Ignored local notes, generated metadata, caches, and other non-release artifacts |
+
+Do not commit generated build outputs, local editor files, provider credentials, `.env`, SQLite databases, `.pytest_cache/`, `*.egg-info/`, or `.dev/`.
+
+## Test Commands
+
+```bash
+pytest
+```
+
+CI runs the test suite on Python 3.10, 3.11, and 3.12.
+
+## Search Architecture
+
+The active search path is `HybridSearch` in `agent_sessions/index/search.py`.
+
+Search behavior:
+
+- Parses natural-language phrasing into a focused search topic.
+- Supports `harness:`, `project:`, `after:`, `before:`, and `#tag:` filters.
+- Runs FTS5 over indexed messages and session metadata.
+- Runs semantic search over embedded chunks when OpenAI embeddings are available.
+- Combines scores at the session level.
+- Carries match snippets and match source labels to CLI and TUI display.
+- Propagates child/sub-agent matches up to parent session results.
+
+When changing search behavior, add focused tests in `tests/test_hybrid_search.py` and run the full suite.
+
+## Adding a Provider
+
+1. Add a module under `agent_sessions/providers/`.
+2. Implement `SessionProvider`.
+3. Register the provider with `@register_provider`.
+4. Return normalized `Session` objects from `parse_session`.
+5. Return ordered user/assistant messages from `get_session_messages`.
+6. Add fixture-based provider tests.
+
+Provider skeleton:
 
 ```python
+from pathlib import Path
+
 from agent_sessions.providers import register_provider
 from agent_sessions.providers.base import SessionProvider
+
 
 @register_provider
 class MyProvider(SessionProvider):
     name = "my-tool"
     display_name = "My Tool"
-    icon = "🔧"
+    icon = "T"
     color = "blue"
 
-    def get_sessions_dir(self):
+    def get_sessions_dir(self) -> Path:
         return Path.home() / ".my-tool" / "sessions"
 
-    def discover_session_files(self):
+    def discover_session_files(self) -> list[Path]:
         ...
 
-    def parse_session(self, path):
+    def parse_session(self, path: Path):
         ...
 
-    def get_session_messages(self, session):
-        """Return [{"role": "user"|"assistant", "content": "..."}].
-        Filter out system/meta messages. Used for transcripts and summaries."""
+    def get_session_messages(self, session) -> list[dict]:
         ...
 
-    def get_resume_command(self, session):
+    def get_resume_command(self, session) -> str:
         return f"my-tool --resume {session.id}"
 ```
 
-3. Add tests in `tests/`
-4. Submit a PR
+Provider parsers should filter system/meta messages from transcripts and keep resume commands faithful to the upstream tool.
 
 ## Annotations
 
-Annotations (tags and notes) can be attached to any session. Two paths:
+Annotations are stored as JSON files under:
 
-- **Hook**: `~/.claude/hooks/annotate.py` captures `#tag:name` and `#note text` from Claude Code prompts
-- **TUI**: `Ctrl+T` / `Ctrl+N` in the browser for retroactive tagging
+```text
+~/.local/share/agent-sessions/annotations/{session_id}.json
+```
 
-Annotation files live at `~/.local/share/agent-sessions/annotations/{session_id}.json` and sync into the SQLite database during indexing.
+They sync into the SQLite index during full and incremental indexing. Tests for annotation persistence and tag filtering should use temporary database instances, not real user data.
 
-## Code Style
+## Release Checklist
 
-- Follow existing patterns and conventions
-- Keep functions small and focused
-- Comments only for non-obvious logic
+Before publishing:
 
-## Pull Requests
-
-- One feature/fix per PR
-- Include tests for new functionality
-- Ensure `pytest tests/` passes
+1. Update `pyproject.toml` and `agent_sessions/__init__.py` to the same version.
+2. Update `CHANGELOG.md` with user-facing changes.
+3. Keep README and CONTRIBUTING aligned with implemented behavior.
+4. Run `pytest`.
+5. Run `git diff --check`.
+6. Ensure `git status --short` contains only intentional tracked changes.

@@ -578,6 +578,86 @@ class SessionDatabase:
 
         return [self._sessionrow_to_session(self._row_to_session(r), summary=r["_summary"]) for r in rows]
 
+    @staticmethod
+    def _build_session_filter_clauses(
+        alias: str = "s",
+        *,
+        harness: Optional[str] = None,
+        project: Optional[str] = None,
+        after_ts: Optional[int] = None,
+        before_ts: Optional[int] = None,
+        tag_filters: Optional[list[str]] = None,
+    ) -> tuple[list[str], list]:
+        conditions: list[str] = []
+        params: list = []
+
+        if harness:
+            conditions.append(f"LOWER({alias}.harness) = ?")
+            params.append(harness.lower())
+
+        if project:
+            project_like = f"%{project.lower()}%"
+            conditions.append(
+                f"(LOWER(COALESCE({alias}.project_name, '')) LIKE ? "
+                f"OR LOWER(COALESCE({alias}.project_path, '')) LIKE ?)"
+            )
+            params.extend([project_like, project_like])
+
+        if after_ts is not None:
+            conditions.append(f"COALESCE({alias}.timestamp_end, {alias}.timestamp) > ?")
+            params.append(after_ts)
+
+        if before_ts is not None:
+            conditions.append(f"COALESCE({alias}.timestamp_end, {alias}.timestamp) < ?")
+            params.append(before_ts)
+
+        for tag in tag_filters or []:
+            conditions.append(
+                f"""{alias}.id IN (
+                    SELECT session_id FROM annotations
+                    WHERE type = 'tag' AND value = ?
+                )"""
+            )
+            params.append(tag)
+
+        return conditions, params
+
+    def find_session_ids(
+        self,
+        *,
+        harness: Optional[str] = None,
+        project: Optional[str] = None,
+        after_ts: Optional[int] = None,
+        before_ts: Optional[int] = None,
+        tag_filters: Optional[list[str]] = None,
+        limit: int = 100000,
+    ) -> list[str]:
+        """Return session IDs matching metadata/tag filters, newest first."""
+
+        self._ensure_schema()
+        conn = self._get_connection()
+        conditions, params = self._build_session_filter_clauses(
+            "s",
+            harness=harness,
+            project=project,
+            after_ts=after_ts,
+            before_ts=before_ts,
+            tag_filters=tag_filters,
+        )
+        where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+        params.append(limit)
+        rows = conn.execute(
+            f"""
+            SELECT s.id
+            FROM sessions s
+            {where_clause}
+            ORDER BY COALESCE(s.timestamp_end, s.timestamp) DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+        return [row["id"] for row in rows]
+
     def get_all_sessions(self):
         """Get all sessions without filters.
         
@@ -1023,47 +1103,114 @@ class SessionDatabase:
         return " AND ".join(f'"{t}"' for t in terms)
 
     def search_messages_fts(
-        self, query: str, limit: int = 50
-    ) -> list[tuple[str, float]]:
+        self,
+        query: str,
+        limit: int = 50,
+        *,
+        harness: Optional[str] = None,
+        project: Optional[str] = None,
+        after_ts: Optional[int] = None,
+        before_ts: Optional[int] = None,
+        tag_filters: Optional[list[str]] = None,
+    ) -> list[tuple[str, float, Optional[str]]]:
         """Search messages via FTS5. Returns (session_id, bm25_score) - lower scores = more relevant."""
         self._ensure_schema()
         conn = self._get_connection()
         fts_query = self._build_fts_query(query)
+        session_conditions, filter_params = self._build_session_filter_clauses(
+            "s",
+            harness=harness,
+            project=project,
+            after_ts=after_ts,
+            before_ts=before_ts,
+            tag_filters=tag_filters,
+        )
+        conditions = ["messages_fts MATCH ?"] + session_conditions
+        where_clause = "WHERE " + " AND ".join(conditions)
+        params = [fts_query] + filter_params + [limit]
         # Use built-in `rank` column instead of bm25() function —
         # bm25() is an auxiliary function that breaks with GROUP BY on SQLite 3.51+
         rows = conn.execute(
-            """
+            f"""
             SELECT m.session_id, MIN(rank) as score
             FROM messages_fts
             JOIN messages m ON messages_fts.rowid = m.rowid
-            WHERE messages_fts MATCH ?
+            JOIN sessions s ON s.id = m.session_id
+            {where_clause}
             GROUP BY m.session_id
             ORDER BY score
             LIMIT ?
             """,
-            (fts_query, limit),
+            params,
         ).fetchall()
-        return [(row["session_id"], row["score"]) for row in rows]
+        if not rows:
+            return []
+
+        session_ids = [row["session_id"] for row in rows]
+        placeholders = ",".join("?" for _ in session_ids)
+        snippet_rows = conn.execute(
+            f"""
+            SELECT
+                m.session_id,
+                snippet(messages_fts, 0, '', '', '...', 24) as snippet,
+                rank as score
+            FROM messages_fts
+            JOIN messages m ON messages_fts.rowid = m.rowid
+            WHERE messages_fts MATCH ? AND m.session_id IN ({placeholders})
+            ORDER BY score
+            """,
+            [fts_query] + session_ids,
+        ).fetchall()
+        snippets: dict[str, str] = {}
+        for row in snippet_rows:
+            snippets.setdefault(row["session_id"], row["snippet"])
+
+        return [
+            (row["session_id"], row["score"], snippets.get(row["session_id"]))
+            for row in rows
+        ]
 
     def search_sessions_fts(
-        self, query: str, limit: int = 50
-    ) -> list[tuple[str, float]]:
+        self,
+        query: str,
+        limit: int = 50,
+        *,
+        harness: Optional[str] = None,
+        project: Optional[str] = None,
+        after_ts: Optional[int] = None,
+        before_ts: Optional[int] = None,
+        tag_filters: Optional[list[str]] = None,
+    ) -> list[tuple[str, float, Optional[str]]]:
         """Search session metadata via FTS5. Returns (session_id, bm25_score) - lower scores = more relevant."""
         self._ensure_schema()
         conn = self._get_connection()
         fts_query = self._build_fts_query(query)
+        session_conditions, filter_params = self._build_session_filter_clauses(
+            "s",
+            harness=harness,
+            project=project,
+            after_ts=after_ts,
+            before_ts=before_ts,
+            tag_filters=tag_filters,
+        )
+        conditions = ["sessions_fts MATCH ?"] + session_conditions
+        where_clause = "WHERE " + " AND ".join(conditions)
+        params = [fts_query] + filter_params + [limit]
         rows = conn.execute(
-            """
-            SELECT s.id, rank as score
+            f"""
+            SELECT
+                s.id,
+                rank as score,
+                snippet(sessions_fts, -1, '', '', '...', 24) as snippet
             FROM sessions_fts
             JOIN sessions s ON sessions_fts.rowid = s.rowid
-            WHERE sessions_fts MATCH ?
+            {where_clause}
             ORDER BY score
             LIMIT ?
             """,
-            (fts_query, limit),
+            params,
         ).fetchall()
-        return [(row["id"], row["score"]) for row in rows]
+        return [(row["id"], row["score"], row["snippet"]) for row in rows]
 
     def get_all_chunk_embeddings(self) -> list[tuple[str, int, bytes]]:
         self._ensure_schema()
@@ -1077,6 +1224,38 @@ class SessionDatabase:
             """
         ).fetchall()
         return [(row["session_id"], row["id"], row["embedding"]) for row in rows]
+
+    def get_chunks_by_ids(self, chunk_ids: list[int]) -> dict[int, ChunkRow]:
+        if not chunk_ids:
+            return {}
+        self._ensure_schema()
+        conn = self._get_connection()
+        placeholders = ",".join("?" for _ in chunk_ids)
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM chunks
+            WHERE id IN ({placeholders})
+            """,
+            chunk_ids,
+        ).fetchall()
+        return {row["id"]: self._row_to_chunk(row) for row in rows}
+
+    def get_chunks_without_embeddings(self, *, limit: Optional[int] = None) -> list[ChunkRow]:
+        self._ensure_schema()
+        conn = self._get_connection()
+        sql = """
+            SELECT *
+            FROM chunks
+            WHERE embedding IS NULL
+            ORDER BY session_id, chunk_index
+        """
+        params: list = []
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+        return [self._row_to_chunk(row) for row in rows]
 
     def count_chunks_with_embeddings(self) -> int:
         self._ensure_schema()
